@@ -2,7 +2,7 @@
 **Welcome** to the Github repository for our manuscript entitled: XIST is Required for Extraembryonic Cell Fate Survival and the Establishment of X-Chromosome Inactivation in Humans (Put a link)
 
 ## Code availability
-**Scripts** related to the manuscript from Pasque lab are avilable in the Github repository in [SCRIPTS](SCRIPTS) directory.
+**Scripts** related to the manuscript from Pasque lab are available in the Github repository in [SCRIPTS](SCRIPTS) directory.
 
 **1.** The bulk RNA-Seq datasets sequenced in this study (H9 Naive, TSCs, EXMCs).
 
