@@ -1,0 +1,260 @@
+# Snakefile for bulk_RNA-seq analysis, from raw fastq to splitted bams. To be pursued with allelic analysis on R. 
+# Jeanne, 20/03/24
+
+configfile: "config.json"
+
+WORKDIR = config["WORKDIR_PATH"]
+FASTQDIR = config["FASTQ_PATH"]
+
+rule all:
+    input:
+        # reporting
+        fastqc_raw=expand(WORKDIR+"fastqc/raw/{sample}_R{r}_fastqc.html", sample=config["SAMPLES"], r=["1","2"]),
+        fastqc_trimmed=expand(WORKDIR+"fastqc/trimmed/{sample}_trimmed_R{r}_fastqc.html", sample=config["SAMPLES"], r=["1","2"]),
+        # splitbams
+        splitbam_g1=expand(WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome1.bam", sample=config["SAMPLES"]),
+        splitbam_g2=expand(WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome2.bam", sample=config["SAMPLES"]),
+        splitbam_conflicting=expand(WORKDIR+"SNPsplit/{sample}.hg38.dedupped.conflicting.bam", sample=config["SAMPLES"]),     
+        # depth counts per snps
+        depthPERSNP_g1=expand(WORKDIR+"SNPsplit/depthPerSNP/{sample}.hg38.dedupped.genome1.depthPERSNP", sample=config["SAMPLES"]),
+        depthPERSNP_g2=expand(WORKDIR+"SNPsplit/depthPerSNP/{sample}.hg38.dedupped.genome2.depthPERSNP", sample=config["SAMPLES"]),
+        depthPERSNP_conflicting=expand(WORKDIR+"SNPsplit/depthPerSNP/{sample}.hg38.dedupped.conflicting.depthPERSNP", sample=config["SAMPLES"]),
+
+
+
+
+# QC and TRIMMING
+
+rule fastqc_raw:
+    input:
+        fastq=WORKDIR+"fastq/raw/{sample_R}.fastq.gz"
+    output:
+        html=WORKDIR+"fastqc/raw/{sample_R}_fastqc.html"
+    log:
+        out="log/{sample_R}_log_fastqc_raw.out",
+        err="log/{sample_R}_log_fastqc_raw.err"
+    shell:
+        """
+        fastqc -o '{WORKDIR}fastqc/raw' -t 4 {input.fastq} 1> {log.out} 2> {log.err}  
+        """
+
+
+# here added --clip_R1 1 and --clip_R2 1 to remove 1 base at 5' end, because are of poor quality 
+rule trimming:
+    input:
+        fastq1=WORKDIR+"fastq/raw/{sample}_R1.fastq.gz",
+        fastq2=WORKDIR+"fastq/raw/{sample}_R2.fastq.gz"
+    params:
+        fastq1_trimmed=WORKDIR+"fastq/trimmed/{sample}_R1_val_1.fq.gz",
+        fastq2_trimmed=WORKDIR+"fastq/trimmed/{sample}_R2_val_2.fq.gz"
+    output:
+        fastq1_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R1.fastq.gz",
+        fastq2_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R2.fastq.gz"
+    shell:
+        """
+        trim_galore --core 4 --length 50 --paired --clip_R1 1 --clip_R2 1 -o '{WORKDIR}fastq/trimmed' {input.fastq1} {input.fastq2}
+        mv {params.fastq1_trimmed} {output.fastq1_trimmed_renamed}
+        mv {params.fastq2_trimmed} {output.fastq2_trimmed_renamed}
+        """
+
+
+rule fastqc_trimmed:
+    input:
+        fastq_trimmed=WORKDIR+"fastq/trimmed/{sample_R}.fastq.gz"
+    output:
+        html=WORKDIR+"fastqc/trimmed/{sample_R}_fastqc.html"
+    log:
+        out="log/{sample_R}_log_fastqc_trimmed.out",
+        err="log/{sample_R}_log_fastqc_trimmed.err"
+    shell:
+        """
+        fastqc -o '{WORKDIR}fastqc/trimmed' -t 4 {input.fastq_trimmed} 1> {log.out} 2> {log.err}  
+        """
+
+
+
+# ALIGNMENT 
+
+rule STAR_hg38:
+    input:
+        fq1=FASTQDIR+"{sample}_trimmed_R1.fastq.gz",
+        fq2=FASTQDIR+"{sample}_trimmed_R2.fastq.gz"
+    output:
+        bam=temp(WORKDIR+"bam/{sample}.hg38.bam")
+    threads: 30
+    params:
+        index_NMASKED=config["HG38_STAR_INDEX_NMASKED"],
+        gtf=config["HG38_GTF_v31"],
+        basename=WORKDIR+"bam/{sample}.hg38."
+    shell:
+        "STAR --readFilesCommand zcat \
+        --outFileNamePrefix {params.basename} \
+        --runMode alignReads \
+        --alignEndsType EndToEnd \
+        --runThreadN {threads} \
+        --sjdbGTFfile {params.gtf} \
+        --outSAMtype BAM Unsorted \
+        --outSAMattributes NH HI NM MD \
+        --genomeDir {params.index_NMASKED} \
+        --quantMode GeneCounts \
+        --readFilesIn {input.fq1} {input.fq2} && mv {params.basename}Aligned.out.bam {output.bam}"
+
+
+rule samtools_sort_hg38:
+    input:
+        WORKDIR+"bam/{sample}.hg38.bam"
+    output:
+        temp(WORKDIR+"bam/{sample}.hg38.sorted.bam")
+    threads: 8
+    log:
+        "log/{sample}_samtools_sort_hg38.log"
+    shell:
+        """
+        samtools sort -@ {threads} -o {output} {input} 2> {log}
+        """
+
+
+
+# READ FILTERING 
+
+rule qual_filter_hg38:
+    input: 
+        WORKDIR+"bam/{sample}.hg38.sorted.bam"
+    output:
+        temp(WORKDIR+"bam/{sample}.hg38.sorted.qfiltered.bam")
+    params: 
+        qual=10
+    log:
+        "log/{sample}_hg38_qualfilter.log"
+    shell:
+        """
+        samtools view -q {params.qual} -b {input} > {output} 2> {log}
+        """
+
+
+rule samtools_index:
+    input: 
+        WORKDIR+"bam/{sample}.hg38.sorted.bam"
+    output: 
+        temp(WORKDIR+"bam/{sample}.hg38.sorted.bam.bai")
+    threads: 4 
+    shell:
+        """
+        samtools index -b -@ {threads} {input} 
+        """
+
+
+rule MarkDuplicates_hg38:
+    input: 
+        bam=WORKDIR+"bam/{sample}.hg38.sorted.bam",
+        bai=WORKDIR+"bam/{sample}.hg38.sorted.bam.bai"
+    output:
+        bam_dedupped=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        metrics="log/{sample}_markdup_hg38.metrics.txt"
+    params:
+        CREATE_INDEX="false",
+        VALIDATION_STRINGENCY="SILENT",
+        REMOVE_DUPLICATES="true",
+        ASSUME_SORTED="true",
+        M="log/{sample}_markdup_hg38.metrics.txt"
+    log:
+        "log/{sample}_MarkDuplicates_hg38.log"
+    shell:
+        "(picard MarkDuplicates \
+            I={input.bam} \
+            O={output.bam_dedupped} \
+            CREATE_INDEX={params.CREATE_INDEX} \
+            VALIDATION_STRINGENCY={params.VALIDATION_STRINGENCY} \
+            REMOVE_DUPLICATES={params.REMOVE_DUPLICATES} \
+            ASSUME_SORTED={params.ASSUME_SORTED} \
+            M={params.M}) 2> {log}"
+
+
+rule samtools_index_md_hg38:
+    input: 
+        WORKDIR+"bam/{sample}.hg38.dedupped.bam"
+    output:
+        WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
+    threads: 4 
+    shell:
+        """
+        samtools index -b -@ {threads} {input} 
+        """
+
+
+rule samtools_idxstats_hg38:
+    input:
+        bam=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        bai=WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
+    output:
+        WORKDIR+"bam/stat/{sample}.hg38.idxstats.txt"
+    log: 
+        "log/{sample}_idxstats_hg38.txt"
+    shell:
+        """
+        samtools idxstats {input.bam} > {output} 2> {log}
+        """
+
+
+
+# SNP SPLIT
+
+rule snpsplit:
+    input:
+        bam=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        bai=WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
+    output:
+        splitbam_g1=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome1.bam",
+        splitbam_g2=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome2.bam",
+        splitbam_conflicting=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.conflicting.bam"
+    params:
+        outdir=WORKDIR+"SNPsplit/",
+        snp_list=config["SNP_LIST"]
+    log:
+        "log/{sample}_snpsplit.txt"
+    shell:
+        """
+        SNPsplit -o {params.outdir} --conflicting --paired --snp_file {params.snp_list} {input.bam}
+        """
+
+                      
+rule sort_final:
+    input:
+        splitbam_g1=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome1.bam",
+        splitbam_g2=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome2.bam",
+        splitbam_conflicting=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.conflicting.bam"
+    output:
+        depthsnp_g1=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome1.sorted.bam",
+        depthsnp_g2=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome2.sorted.bam",
+        depthsnp_conflicting=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.conflicting.sorted.bam"
+    threads: 8
+    log:
+        "log/{sample}_samtools_sort_snpsplit_bams.log"
+    shell:
+        """
+        samtools sort -@ {threads} -o {output.depthsnp_g1} {input.splitbam_g1} 2> {log}
+        samtools sort -@ {threads} -o {output.depthsnp_g2} {input.splitbam_g2} 2>> {log}
+        samtools sort -@ {threads} -o {output.depthsnp_conflicting} {input.splitbam_conflicting} 2>> {log}
+        """
+
+
+rule depth_per_SNP:
+    input:
+        splitbam_g1=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome1.sorted.bam",
+        splitbam_g2=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.genome2.sorted.bam",
+        splitbam_conflicting=WORKDIR+"SNPsplit/{sample}.hg38.dedupped.conflicting.sorted.bam"
+    output:
+        depthPERSNP_g1=WORKDIR+"SNPsplit/depthPerSNP/{sample}.hg38.dedupped.genome1.depthPERSNP",
+        depthPERSNP_g2=WORKDIR+"SNPsplit/depthPerSNP/{sample}.hg38.dedupped.genome2.depthPERSNP",
+        depthPERSNP_conflicting=WORKDIR+"SNPsplit/depthPerSNP/{sample}.hg38.dedupped.conflicting.depthPERSNP"
+    params:
+        snp_bed=config["SNP_BED"]
+    log:
+        "log/{sample}_bedtoolscov_depthpersnp.log"
+    shell:
+        """
+        bedtools coverage -sorted -g genome.txt -d -a {params.snp_bed} -b {input.splitbam_g1} > {output.depthPERSNP_g1} 2> {log}
+        bedtools coverage -sorted -g genome.txt -d -a {params.snp_bed} -b {input.splitbam_g2} > {output.depthPERSNP_g2} 2>> [log]
+        bedtools coverage -sorted -g genome.txt -d -a {params.snp_bed} -b {input.splitbam_conflicting} > {output.depthPERSNP_conflicting} 2>> {log}
+        """
+    
