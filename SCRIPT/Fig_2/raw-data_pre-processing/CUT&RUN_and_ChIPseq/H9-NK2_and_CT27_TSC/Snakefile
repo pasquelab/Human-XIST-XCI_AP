@@ -1,0 +1,304 @@
+# Snakefile for raw data pre-processing (fastq alignment, QC, bigwigs, downsampling) of CUT&RUN or CUT&TAG => No Xenofilter 
+
+configfile: "config.json"
+
+WORKDIR = config["WORKING_PATH"]
+
+rule all:
+    input:
+        # reporting
+        fastqc_raw=expand(WORKDIR+"fastqc/raw/{sample}_R{r}_fastqc.html", sample=config["SAMPLES"],r=["1","2"]),
+        fastqc_trimmed=expand(WORKDIR+"fastqc/trimmed/{sample}_trimmed_R{r}_fastqc.html", sample=config["SAMPLES"],r=["1","2"]),
+        idxstats=expand(WORKDIR+"idxstats/{sample}.hg38.dedupped_idxstats.txt", sample=config["SAMPLES"]),
+        markdup_metrics=expand("log/{sample}_markdup.metrics.txt", sample=config["SAMPLES"]),
+        # downsampled bam
+        downsampled_bam_idxstats=expand(WORKDIR+"idxstats/{sample}_downsampled.idxstats.txt", sample=config["SAMPLES"]),
+        # bigwigs
+        bigwig_raw=expand(WORKDIR+"bigwig/raw/{sample}.raw.all.bw", sample=config["SAMPLES"]),
+        bigwig_bpm=expand(WORKDIR+"bigwig/bpm/{sample}.BPM.all.bw", sample=config["SAMPLES"])
+
+      
+# QC AND TRIMMING 
+
+rule fastqc_raw:
+    input:
+        fastq=WORKDIR+"fastq/raw/{sample_R}.fastq.gz"
+    output:
+        html=WORKDIR+"fastqc/raw/{sample_R}_fastqc.html"
+    log:
+        out="log/{sample_R}_log_fastqc.out",
+        err="log/{sample_R}_log_fastqc.err"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        fastqc -o '{WORKDIR}fastqc/raw' -t 4 {input.fastq} 1> {log.out} 2> {log.err}  
+        """
+
+
+rule trimming:
+    input:
+        fastq1=WORKDIR+"fastq/raw/{sample}_R1.fastq.gz",
+        fastq2=WORKDIR+"fastq/raw/{sample}_R2.fastq.gz"
+    params:
+        fastq1_trimmed=WORKDIR+"fastq/trimmed/{sample}_R1_val_1.fq.gz",
+        fastq2_trimmed=WORKDIR+"fastq/trimmed/{sample}_R2_val_2.fq.gz"
+    output:
+        fastq1_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R1.fastq.gz",
+        fastq2_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R2.fastq.gz"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        trim_galore --core 4 --length 50 --paired -o '{WORKDIR}fastq/trimmed' {input.fastq1} {input.fastq2}
+        mv {params.fastq1_trimmed} {output.fastq1_trimmed_renamed}
+        mv {params.fastq2_trimmed} {output.fastq2_trimmed_renamed}
+        """
+
+
+rule fastqc_trimmed:
+    input:
+        fastq_trimmed=WORKDIR+"fastq/trimmed/{sample_R}.fastq.gz"
+    output:
+        html=WORKDIR+"fastqc/trimmed/{sample_R}_fastqc.html"
+    log:
+        out="log/{sample_R}_log_fastqc.out",
+        err="log/{sample_R}_log_fastqc.err"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        fastqc -o '{WORKDIR}fastqc/trimmed' -t 4 {input.fastq_trimmed} 1> {log.out} 2> {log.err}  
+        """
+
+
+
+# ALIGNMENT ON HUMAN GENOME AND FILTERING
+
+rule bowtie2_hg38:
+    input:
+        fq1=WORKDIR+"fastq/trimmed/{sample}_trimmed_R1.fastq.gz",
+        fq2=WORKDIR+"fastq/trimmed/{sample}_trimmed_R2.fastq.gz"
+    output:
+        bam=temp(WORKDIR+"bam/{sample}.hg38.bam"),
+        bam_log="log/{sample}_bowtie2_hg38.log"
+    params:
+        index=config["HOMO_INDEX"],
+        extra="--local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -L 10 -X 700",
+        cpu=8
+    log:
+        "log/{sample}_bowtie2_hg38.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        bowtie2 -x {params.index} -1 {input.fq1} -2 {input.fq2} {params.extra} --threads {params.cpu} > {output.bam} 2> {log}
+        """
+
+
+rule samtools_sort_hg38:
+    input:
+        WORKDIR+"bam/{sample}.hg38.bam"
+    output:
+        temp(WORKDIR+"bam/{sample}.hg38.sorted.bam")
+    threads: 8
+    log:
+        "log/{sample}_samtools_sort_hg38.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools sort -@ {threads} -o {output} {input} 2> {log}
+        """
+
+
+rule qual_filter:
+    input: WORKDIR+"bam/{sample}.hg38.sorted.bam"
+    output: temp(WORKDIR+"bam/{sample}.hg38.sorted.qfiltered.bam")
+    params: 
+        qual=10
+    log:
+        "log/{sample}_hg38_qualfilter.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools view -q {params.qual} -b {input} > {output} 2> {log}
+        """
+
+
+rule samtools_index:
+    input: WORKDIR+"bam/{sample}.hg38.sorted.qfiltered.bam"
+    output: temp(WORKDIR+"bam/{sample}.hg38.sorted.qfiltered.bam.bai")
+    threads: 4 
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools index -b -@ {threads} {input} 
+        """
+
+
+rule MarkDuplicates:
+    input: 
+        bam=WORKDIR+"bam/{sample}.hg38.sorted.qfiltered.bam",
+        bai=WORKDIR+"bam/{sample}.hg38.sorted.qfiltered.bam.bai"
+    output:
+        bam_dedupped=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        metrics="log/{sample}_markdup.metrics.txt"
+    params:
+        CREATE_INDEX="false",
+        VALIDATION_STRINGENCY="SILENT",
+        REMOVE_DUPLICATES="true",
+        ASSUME_SORTED="true",
+        M="log/{sample}_markdup.metrics.txt"
+    log:
+        "log/{sample}_hg38_MarkDuplicates.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        "(picard MarkDuplicates \
+            I={input.bam} \
+            O={output.bam_dedupped} \
+            CREATE_INDEX={params.CREATE_INDEX} \
+            VALIDATION_STRINGENCY={params.VALIDATION_STRINGENCY} \
+            REMOVE_DUPLICATES={params.REMOVE_DUPLICATES} \
+            ASSUME_SORTED={params.ASSUME_SORTED} \
+            M={params.M}) 2> {log}"
+
+
+rule samtools_index_md:
+    input: 
+        WORKDIR+"bam/{sample}.hg38.dedupped.bam"
+    output:
+        WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
+    threads: 4 
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools index -b -@ {threads} {input} 
+        """
+
+
+rule stats_bam:
+    input:
+        bam=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        bai=WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
+    output: 
+        WORKDIR+"idxstats/{sample}.hg38.dedupped_idxstats.txt" 
+    log: 
+        "log/{sample}_dedupped_idxstats.err"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools idxstats {input.bam} > {output} 2> {log}
+        """
+
+
+
+# BIGWIG
+
+rule bigwig_raw:
+    input:
+        bam=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        bai=WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
+    output: 
+        protected(WORKDIR+"bigwig/raw/{sample}.raw.all.bw")
+    log: "log/{sample}_raw_bw.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        bamCoverage -b {input.bam} -o {output} 2> {log}
+        """
+
+
+rule bigwig_bpm:
+    input:
+        bam=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        bai=WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
+    output: 
+        protected(WORKDIR+"bigwig/bpm/{sample}.BPM.all.bw")
+    params:
+        normalizeUsing="BPM",
+        binSize=20,
+        smoothLength=40
+    log: "log/{sample}_BPM_bw.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        "(bamCoverage -b {input.bam} \
+        --normalizeUsing {params.normalizeUsing}  --binSize {params.binSize} \
+        --smoothLength {params.smoothLength} -o {output}) 2> {log}"
+
+
+rule bigwig_bpm_chrX:
+    input:
+        bam=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        bai=WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
+    output: 
+        protected(WORKDIR+"bigwig/bpm/{sample}.BPM.chrX.bw")
+    params:
+        normalizeUsing="BPM",
+        binSize=20,
+        smoothLength=40
+    log: "log/{sample}_BPM_chrX_bw.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        "(bamCoverage -b {input.bam} \
+        --normalizeUsing {params.normalizeUsing}  --binSize {params.binSize} \
+        --smoothLength {params.smoothLength} --region chrX -o {output}) 2> {log}"
+
+
+
+# DOWNSAMPLING
+
+rule bam_downsampling:
+    input:
+        bam=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        bai=WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
+    output:
+        downsampled_bam=WORKDIR+"bam/downsampled/{sample}_downsampled.bam"
+    log:
+        "log/{sample}_downsampling.log"
+    threads: 6
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        reads=26500000
+        bam={input.bam}
+        fraction=$(samtools idxstats -@ {threads} $bam | cut -f3 | awk -v ct=$reads 'BEGIN {{total=0}} {{total += $1}} END {{print ct/total}}')
+        samtools view -@ {threads} -b -s ${{fraction}} $bam > {output.downsampled_bam} 2> {log}
+        """
+
+
+rule index_downsampled:
+    input:
+        downsampled_bam=WORKDIR+"bam/downsampled/{sample}_downsampled.bam"
+    output:
+        downsampled_bai=WORKDIR+"bam/downsampled/{sample}_downsampled.bam.bai"
+    threads: 4
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools index -@ {threads} {input.downsampled_bam}
+        """
+
+
+rule idxstats_downsampled:
+    input:
+        downsampled_bam=WORKDIR+"bam/downsampled/{sample}_downsampled.bam",
+        downsampled_bai=WORKDIR+"bam/downsampled/{sample}_downsampled.bam.bai"
+    output:
+        idxstats=WORKDIR+"idxstats/{sample}_downsampled.idxstats.txt"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools idxstats {input.downsampled_bam} > {output.idxstats}
+        """
