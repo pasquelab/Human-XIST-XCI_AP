@@ -1,0 +1,18 @@
+{
+	"MOUSE_INDEX":"/shared/banks/genomes/mus_musculus/mm39/bowtie2/bowtie2_mm39",
+	"HOMO_INDEX":"/shared/projects/xci/ReferenceGenomes/GRCh38/bowtie2/hg38",
+	"WORKING_PATH": "/shared/projects/tsc/cutrun_alldata_test/TSC-EXMC-Primed/",
+
+	"SAMPLES":{
+		"D1249C60":"D1249C60",
+		"D1249C61":"D1249C61",
+		"D1249C62":"D1249C62",
+		"D1249C64":"D1249C64",
+		"D1249C76":"D1249C76",
+		"D1249C77":"D1249C77",
+		"D1249C78":"D1249C78",
+		"D1249C80":"D1249C80"
+	}
+
+}
+
