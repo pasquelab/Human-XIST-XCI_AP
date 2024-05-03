@@ -37,7 +37,7 @@ kallisto quant -i $index -o ./Primed/ --rf-stranded -b 50 --threads 8 ../fastq/t
 
 ### Heatmap (R)
 
-The output abundance.tsv files were renamed (adding sample name, to differenciate them from one another) and then processed on R to generate a heatmap using the following R script. This script requires a gtf file (here gencode.v31.annotation.gtf):
+The output abundance.tsv files were renamed (adding sample name, to differenciate them from one another) and then processed on R/4.3.2 to generate a heatmap using the following R script. This script requires a gtf file (here gencode.v31.annotation.gtf):
 
 ```
 library(ggplot2)
