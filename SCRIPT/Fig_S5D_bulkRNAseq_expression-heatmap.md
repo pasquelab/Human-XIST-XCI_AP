@@ -7,7 +7,7 @@ Input data files:
 
 Reads were pseudo-aligned using kallisto/0.46.2 [(Bray et al., 2016)](https://github.com/pachterlab/kallisto) to quantify transcripts abundance.
 
-First, kallisto indexes were generated as follow: 
+First, kallisto index was generated as follow: 
 1) transcriptome fasta files of cDNA and ncRNA were downloaded from: https://www.ensembl.org/info/data/ftp/index.html, and concatenated.
 2) The resulting fasta file was indexed using: `kallisto index -i kallisto_transcripts.idx Homo_sapiens.GRCh38.cdna.ncrna.fa.gz`
 
