@@ -3,7 +3,7 @@
 Input data files:
 - trimmed bulkRNAseq fastq files (Naive, TSC, EXMC, Primed, and WT dox +/-, XIST iKD +/- dox)
 
-### transcript abundance using kallisto
+### Transcript abundance using kallisto
 
 Reads were pseudo-aligned using kallisto/0.46.2 [Bray et al., 2016](https://github.com/pachterlab/kallisto) to quantify transcripts abundance.
 
