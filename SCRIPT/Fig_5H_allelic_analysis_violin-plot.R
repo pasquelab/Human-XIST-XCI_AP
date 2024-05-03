@@ -10,7 +10,6 @@ library(viridis)
 outFilePrefix <- "C:/Users/gael/Desktop/test_jeanne/bulk_RNAseq_Leo/allelic_analysis/R_analysis_like_bradley/output_figs"
 
 
-
 # # Uploading depthperSNP files
 # setwd("X:/jeanne_test/bulk_RNAseq_Leo/allelic_analysis_bradley_method/bam/SNPsplit/depthPerSNP/")
 # refFiles <- list.files(pattern = "*.genome1.depthPERSNP")
@@ -296,7 +295,7 @@ allelicRatiosPerGeneStack %>%
 #geom_text(aes(x = Player, y = EFG,label=EFG),vjust=-0.25)+
 
 
-# plot 4: map of biallelic genes in KD dox + that are not biallelic in KD dox - (subjected to xist-xci?)
+# plot 4: map of biallelic genes in KD dox + that are not biallelic in KD dox - 
 list_gene_bi_KD <- allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$cellTypeOrdered == 'KD dox +' & !is.na(allelicRatiosPerGeneStack$values) & allelicRatiosPerGeneStack$allelism == "bi" & allelicRatiosPerGeneStack$chr == 'chrX' ,]$gene 
 list_gene_bi_KDnodox <- allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$cellTypeOrdered == 'KD dox -' & !is.na(allelicRatiosPerGeneStack$values) & allelicRatiosPerGeneStack$allelism == "bi" & allelicRatiosPerGeneStack$chr == 'chrX' ,]$gene 
 gene_list <- list_gene_bi_KD[!(list_gene_bi_KD %in% list_gene_bi_KDnodox)]
