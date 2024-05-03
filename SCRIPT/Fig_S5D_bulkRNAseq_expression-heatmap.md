@@ -5,7 +5,7 @@ Input data files:
 
 ### transcript abundance using kallisto
 
-Reads were pseudo-aligned using kallisto/0.46.2 (Bray et al., 2016)[https://github.com/pachterlab/kallisto] to quantify transcripts abundance.
+Reads were pseudo-aligned using kallisto/0.46.2 [Bray et al., 2016](https://github.com/pachterlab/kallisto) to quantify transcripts abundance.
 
 First, kallisto indexes were generated as follow: 
 1) transcriptome fasta files of cDNA and ncRNA were downloaded from: https://www.ensembl.org/info/data/ftp/index.html, and concatenated.
