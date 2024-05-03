@@ -1,7 +1,7 @@
 ## Figure Sup.5D: expression heatmap
 
 Input data files:
-- trimmed bulkRNAseq fastq files (Naive, TSC, EXMC, Primed, and WT dox +/-, XIST iKD +/- dox)
+- trimmed bulk RNAseq fastq files (Naive, TSC, EXMC, Primed, and WT dox +/-, XIST iKD +/- dox)
 
 ### Transcript abundance using kallisto
 
