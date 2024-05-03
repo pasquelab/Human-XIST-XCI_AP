@@ -1,0 +1,173 @@
+# Downsampling bam files that were merged (replicates), generate bigwigs and macs2 peakcalling peaks, on A. de Sousa,2023 capacitated ChIPseq data. 
+## 22/02/2024 Jeanne 
+
+configfile: "config.json"
+
+WORKDIR = config["WORKING_PATH"]
+
+rule all:
+    input:
+        # bam stats
+        idxstats=expand(WORKDIR+"idxstats/{sample}_downsampled.idxstats.txt", sample=config["SAMPLES"]),
+        # bigwigs
+        bw_raw=expand(WORKDIR+"bigwig/raw/downsampled/{sample}_downsampled.raw.chrX.bw", sample=config["SAMPLES"]),
+        bw_bpm=expand(WORKDIR+"bigwig/bpm/downsampled/{sample}_downsampled.bpm.chrX.bw", sample=config["SAMPLES"]),
+        # macs2 peaks enlarged
+        enlarged_macs2_peaks=expand(WORKDIR+"macs2/{sample}_macs2_enlarged.bed", sample=config["SAMPLES"])
+
+
+
+# DOWNSAMPLING
+
+rule index_merged_CHIP:
+    input:
+        bam=WORKDIR+"bam/merged_downsampled_bam/{sample}_Filtered.merged.bam"
+    output:
+        bai=WORKDIR+"bam/merged_downsampled_bam/{sample}_Filtered.merged.bam.bai"
+    threads: 4
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools index -@ {threads} {input.bam}
+        """
+
+
+rule bam_downsampling_CHIP:
+    input:
+        bam=WORKDIR+"bam/merged_downsampled_bam/{sample}_Filtered.merged.bam",
+        bai=WORKDIR+"bam/merged_downsampled_bam/{sample}_Filtered.merged.bam.bai"
+    output:
+        bam_downsampled=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam"
+    log:
+        "log/{sample}_downsampling.log"
+    threads: 6
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        reads=26500000
+        bam={input.bam}
+        fraction=$(samtools idxstats -@ {threads} $bam | cut -f3 | awk -v ct=$reads 'BEGIN {{total=0}} {{total += $1}} END {{print ct/total}}')
+        samtools view -@ {threads} -b -s ${{fraction}} $bam > {output.bam_downsampled} 2> {log}
+        """
+
+
+rule index_downsampled_CHIP:
+    input:
+        WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam"
+    output:
+        bai=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam.bai"
+    threads: 4
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools index -@ {threads} {input}
+        """
+
+
+rule idxstats_downsampled_CHIP:
+    input:
+        bam=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam",
+        bai=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam.bai"
+    output:
+        idxstats=WORKDIR+"idxstats/{sample}_downsampled.idxstats.txt"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        samtools index {input.bam} > {output.idxstats}
+        """
+
+
+
+# BIGWIG
+
+rule bigwig_raw_X:
+    input:
+        bam=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam",
+        bai=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam.bai"
+    output: 
+        WORKDIR+"bigwig/raw/downsampled/{sample}_downsampled.raw.chrX.bw"
+    params:
+        binSize=20,
+        smoothLength=40
+    log: 
+        "log/{sample}_raw_bw_X.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        bamCoverage -b {input.bam} --binSize {params.binSize} --smoothLength {params.smoothLength} --region chrX -o {output} 2> {log}
+        """
+
+
+rule bigwig_bpm_X:
+    input:
+        bam=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam",
+        bai=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam.bai"
+    output: 
+        WORKDIR+"bigwig/bpm/downsampled/{sample}_downsampled.bpm.chrX.bw"
+    params:
+        normalization_method="BPM",
+        binSize=20,
+        smoothLength=40
+    log: 
+        "log/{sample}_bpm_bw_X.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        """
+        bamCoverage -b {input.bam} --normalizeUsing {params.normalization_method} --binSize {params.binSize} --smoothLength {params.smoothLength} --region chrX -o {output} 2> {log}
+        """
+
+
+
+# MACS2
+
+rule macs2:
+    input:
+        bam=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam",
+        bai=WORKDIR+"bam/merged_downsampled_bam/{sample}_downsampled.bam.bai"
+    output:
+        peaks=WORKDIR+"macs2/{sample}_macs2_peaks.broadPeak",
+        gapped_peaks=WORKDIR+"macs2/{sample}_macs2_peaks.gappedPeak",
+        xls=WORKDIR+"macs2/{sample}_macs2_peaks.xls"
+    params:
+        out_dir=WORKDIR+"macs2/",
+        broad_cutoff=0.1
+    log:
+        "log/{sample}_macs2.log"
+    singularity:
+        "cutrun.sif"
+    shell:
+        "(macs2 callpeak \
+            -t {input.bam} \
+            -f BAMPE \
+            -g 2913022398 \
+            -n {wildcards.sample}_macs2 \
+            --outdir {params.out_dir} \
+            --keep-dup 'all' \
+            --broad \
+            --broad-cutoff {params.broad_cutoff} \
+            --nolambda) \
+            2> {log}" 
+
+#genome effecive size (-g) from deeptools : https://deeptools.readthedocs.io/en/develop/content/feature/effectiveGenomeSize.html 
+
+
+rule enlarging_peaks:
+    input:
+        peaks=WORKDIR+"macs2/{sample}_macs2_peaks.broadPeak"
+    output:
+        enlarged_peaks=WORKDIR+"macs2/{sample}_macs2_enlarged.bed"
+    params:
+        distance=10000
+    #singularity:
+    #    "cutrun.sif"
+    shell:
+        """
+        bedtools merge -i {input.peaks} -d {params.distance} > {output.enlarged_peaks}
+        """
+
