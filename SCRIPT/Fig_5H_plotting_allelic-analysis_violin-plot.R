@@ -1,6 +1,3 @@
-
-setwd('C:/Users/gael/Desktop/test_jeanne/bulk_RNAseq_Leo/allelic_analysis/R_analysis_like_bradley/')
-
 library(ggplot2)
 library(dplyr)
 library(tibble)
@@ -9,8 +6,8 @@ library(viridis)
 
 
 # Uploading depthperSNP files
-refFiles <- list.files(path = "X:/jeanne_test/bulk_RNAseq_Leo/allelic_analysis_bradley_method/bam/SNPsplit/depthPerSNP/", pattern = "*.genome1.depthPERSNP")
-altFiles <- list.files(path = "X:/jeanne_test/bulk_RNAseq_Leo/allelic_analysis_bradley_method/bam/SNPsplit/depthPerSNP/", pattern = "*.genome2.depthPERSNP")
+refFiles <- list.files(path = "data/depthPerSNP/", pattern = "*.genome1.depthPERSNP")
+altFiles <- list.files(path = "data/depthPerSNP/", pattern = "*.genome2.depthPERSNP")
 
 print("checking length of ref and alt files")
 length(refFiles)==length(altFiles)
