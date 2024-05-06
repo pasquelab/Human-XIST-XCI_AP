@@ -16,9 +16,9 @@ length(refFiles)==length(altFiles)
 combinedFiles <- vector(mode="list")
 for(i in 1:length(refFiles)){
   combinedFiles[[i]] <- vector(mode="list")
-  combinedFiles[[i]]$ref <- unique(read.table(paste0("X:/jeanne_test/bulk_RNAseq_Leo/allelic_analysis_bradley_method/bam/SNPsplit/depthPerSNP/",refFiles[i]), h=F)[,1:5])
+  combinedFiles[[i]]$ref <- unique(read.table(paste0("data/SNPsplit/depthPerSNP/",refFiles[i]), h=F)[,1:5])
   colnames(combinedFiles[[i]]$ref) <- c("chr", "start", "stop", "length", "refDepth")
-  combinedFiles[[i]]$alt <- unique(read.table(paste0("X:/jeanne_test/bulk_RNAseq_Leo/allelic_analysis_bradley_method/bam/SNPsplit/depthPerSNP/",altFiles[i]), h=F)[,1:5])
+  combinedFiles[[i]]$alt <- unique(read.table(paste0("data/SNPsplit/depthPerSNP/",altFiles[i]), h=F)[,1:5])
   colnames(combinedFiles[[i]]$alt) <- c("chr", "start", "stop", "length", "altDepth")
 }
 
@@ -43,7 +43,7 @@ levels(allReadTotalStack$ind) <- c('KD dox -', 'KD dox +', 'WT dox -', 'WT dox +
 
 ##### associating snp to gene data (name, status) #####
 
-XCIstatuses <- read.table("newcalls.xci.txt", h=T)# this is from B. Balaton 2015 paper (Overallscore), newscore is newer calls I made but never published. just use the published ones
+XCIstatuses <- read.table("newcalls.xci.txt", h=T)# this is from B. Balaton 2015 paper (Overallscore), newscore is newer calls I made but never published. just use the published ones.
 exons <- read.table("hg38.exonsWgene.tsv", h=F) # this is chrX only
 allExons <- read.table("hg38.allChrs.exonsWgenes.tsv", h=T)
 
@@ -235,7 +235,7 @@ ggplot(allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$chr=="chrX",],
 
 ##### plot 2: map of biallelic genes in KD dox that are not biallelic in KD dox - #####
 
-# adding allelism status info
+# adding allelism info based on ratio
 allelicRatiosPerGeneStack$allelism <- if_else(allelicRatiosPerGeneStack$values >= 0.25, "bi", "mono", NA)
 
 # Compute list of genes
