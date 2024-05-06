@@ -254,7 +254,7 @@ rule depth_per_SNP:
     shell:
         """
         bedtools coverage -sorted -g genome.txt -d -a {params.snp_bed} -b {input.splitbam_g1} > {output.depthPERSNP_g1} 2> {log}
-        bedtools coverage -sorted -g genome.txt -d -a {params.snp_bed} -b {input.splitbam_g2} > {output.depthPERSNP_g2} 2>> [log]
+        bedtools coverage -sorted -g genome.txt -d -a {params.snp_bed} -b {input.splitbam_g2} > {output.depthPERSNP_g2} 2>> {log}
         bedtools coverage -sorted -g genome.txt -d -a {params.snp_bed} -b {input.splitbam_conflicting} > {output.depthPERSNP_conflicting} 2>> {log}
         """
     
