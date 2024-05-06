@@ -1,3 +1,4 @@
+
 library(ggplot2)
 library(dplyr)
 library(tibble)
@@ -5,9 +6,9 @@ library(gridExtra)
 library(viridis)
 
 
-# Uploading depthperSNP files
-refFiles <- list.files(path = "data/depthPerSNP/", pattern = "*.genome1.depthPERSNP")
-altFiles <- list.files(path = "data/depthPerSNP/", pattern = "*.genome2.depthPERSNP")
+##### Uploading depthperSNP files #####
+refFiles <- list.files(path = "data/SNPsplit/depthPerSNP/", pattern = "*.genome1.depthPERSNP")
+altFiles <- list.files(path = "data/SNPsplit/depthPerSNP/", pattern = "*.genome2.depthPERSNP")
 
 print("checking length of ref and alt files")
 length(refFiles)==length(altFiles)
@@ -48,7 +49,7 @@ allExons <- read.table("hg38.allChrs.exonsWgenes.tsv", h=T)
 
 # chrX only 
 getGene <- function(Xpos){
-  
+
   if(any(exons$V2<Xpos & exons$V3>Xpos)){
     return(paste(unique(exons$V4[which(exons$V2<Xpos & exons$V3>Xpos)]), collapse=","))
   } else return("no gene found")
@@ -78,7 +79,7 @@ allReadTotalStack$status <- NA
 allReadTotalStack$gene[which(allReadTotalStack$chr=="chrX")] <- unlist(lapply(allReadTotalStack$SNP[which(allReadTotalStack$chr=="chrX")], getGene))
 allReadTotalStack$status[which(allReadTotalStack$chr=="chrX")] <- unlist(lapply(allReadTotalStack$SNP[which(allReadTotalStack$chr=="chrX")], getStatus))
 
-# Expand to autosomes
+# For all chromosomes
 getGeneIncludeAutosomes <- function(SNPpos, chrExons){
 
   if(any(chrExons$start<SNPpos & chrExons$stop>SNPpos)){
@@ -86,23 +87,24 @@ getGeneIncludeAutosomes <- function(SNPpos, chrExons){
   } else return("no gene found")
 
 }
-# takes forever
+# takes a long time
 for(chr in unique(allReadTotalStack$chr)){
   print(chr)
   allReadTotalStack$gene[which(allReadTotalStack$chr==chr)] <- unlist(lapply(allReadTotalStack[which(allReadTotalStack$chr==chr),2], getGeneIncludeAutosomes, chrExons = allExons[which(allExons$chr==chr),]))
   print(paste0(chr, " done. Next chr"))
 }
 
-# Jeanne:
+# Adding autosomal chr status
 allReadTotalStack$status[which(allReadTotalStack$chr!="chrX" & allReadTotalStack$gene != "no gene found")] <- "autosomal"
 
 
-# saved this table because long to generate:
+# saved the table at this step because long to generate:
 write.table(allReadTotalStack, "allReadTotalStack_bulk-Leo.csv", sep = ",", col.names = T, row.names = F, quote = F)
+# allReadTotalStack <- read.csv("allReadTotalStack_bulk-Leo.csv", header = T)
 
 
 
-##### Ratios #####
+##### Calculate allele ratios per SNP position #####
 
 getMinMaxRatio<- function(reads){ 
 
@@ -162,13 +164,13 @@ allReadTotalStack$depthFilter <- apply(allReadTotalStack[,c(3,5)], 1, sum)>29
 # add a column with depth info
 allReadTotalStack$depth <- apply(allReadTotalStack[,c(3,5)], 1, sum)
 
-# Saving the table (because very long to generate again):
-setwd('C:/Users/gael/Desktop/test_jeanne/bulk_RNAseq_Leo/allelic_analysis/R_analysis_like_bradley/')
-# write.table(allReadTotalStack, "allReadTotalStack_bulk-Leo.csv", sep = ",", col.names = T, row.names = F, quote = F)
-allReadTotalStack <- read.csv("allReadTotalStack_bulk-Leo.csv", header = T)
+# Saving the table at this step (because very long to generate again):
+
+write.table(allReadTotalStack, "allReadTotalStack_bulk-Leo.csv", sep = ",", col.names = T, row.names = F, quote = F)
+# allReadTotalStack <- read.csv("allReadTotalStack_bulk-Leo.csv", header = T)
 
 
-##### Per gene #####
+##### Calculate allele ratios per gene #####
 
 allelicRatiosPerGene <- data.frame(unique(allReadTotalStack[order(allReadTotalStack$SNP),7:8]))[-1,] # remove the first line corresponding to 'no gene found'
 allelicRatiosPerGene <- cbind(allelicRatiosPerGene, matrix(nrow = nrow(allelicRatiosPerGene), ncol=4))
@@ -187,7 +189,7 @@ for(r in 1:nrow(allelicRatiosPerGene)){
   }
 }
 
-summary(allelicRatiosPerGene) #should be between 0 and 1
+summary(allelicRatiosPerGene) # should be between 0 and 1
 
 # adding column with chr
 allelicRatiosPerGene$chr <- NA
@@ -196,11 +198,11 @@ for(chr in unique(allReadTotalStack$chr)){
 }
 
 
-
 # saving table at this step because very long to generate: 
 write.table(allelicRatiosPerGene, "allelicRatiosPerGene.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
 # opening the saved table: 
 #allelicRatiosPerGene <- read.table("allelicRatiosPerGene.tsv", header = T, sep = "\t")
+
 colnames(allelicRatiosPerGene)[3:6] <- unlist(c('KD dox -', 'KD dox +', 'WT dox -', 'WT dox +'))
 
 # from wide to long df
@@ -212,10 +214,9 @@ allelicRatiosPerGeneStack$cellTypeOrdered <- factor(allelicRatiosPerGeneStack$in
 
 
 
-# plot 1: violin plot mean allelic ratio per gene 
-## CAUTION: JUST CHRX WANTED HERE
-#options(repr.plot.width=5)
-#pdf(file=paste(c(outFilePrefix, "violinplot.minmaxRatio.medianSNPperGene.allgenes.pdf"), collapse=""), height=5, width=4)
+##### plot 1: violin plot mean allelic ratio per gene -> /!\ just chrX here !! #####
+
+
 ggplot(allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$chr=="chrX",],
        aes(x=cellTypeOrdered, y=values*100, fill=cellTypeOrdered)) +
   geom_violin(scale="width", alpha=0.5) +
@@ -227,20 +228,31 @@ ggplot(allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$chr=="chrX",],
   scale_fill_manual(values=c('WT dox -'='#8CCEBA', 'WT dox +'='#EBAE80','KD dox -'="#B9B7D8", 'KD dox +'="#F293C4")) +
   geom_hline(yintercept=c(25), linetype = 2, color = 'red') +
   theme(text = element_text(size=16), legend.position="none", panel.grid.major = element_blank(), panel.grid.minor=element_blank())
-#dev.off()
 
 
-# plot 2: map of biallelic genes in KD dox + that are not biallelic in KD dox - (subjected to xist-xci?)
+
+
+
+##### plot 2: map of biallelic genes in KD dox that are not biallelic in KD dox - #####
+
+# adding allelism status info
+allelicRatiosPerGeneStack$allelism <- if_else(allelicRatiosPerGeneStack$values >= 0.25, "bi", "mono", NA)
+
+# Compute list of genes
 list_gene_bi_KD <- allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$cellTypeOrdered == 'KD dox +' & !is.na(allelicRatiosPerGeneStack$values) & allelicRatiosPerGeneStack$allelism == "bi" & allelicRatiosPerGeneStack$chr == 'chrX' ,]$gene 
 list_gene_bi_KDnodox <- allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$cellTypeOrdered == 'KD dox -' & !is.na(allelicRatiosPerGeneStack$values) & allelicRatiosPerGeneStack$allelism == "bi" & allelicRatiosPerGeneStack$chr == 'chrX' ,]$gene 
 gene_list <- list_gene_bi_KD[!(list_gene_bi_KD %in% list_gene_bi_KDnodox)]
+# Get start position of each gene of the list
 positions <- c()
 for (gene_name in gene_list){
-  start_pos <- min(allExons %>% filter(gene == gene_name) %>% select(start)) # takes the first start position int he list of all start positions of all exons from the gene
+  start_pos <- min(allExons %>% filter(gene == gene_name) %>% select(start)) # takes the first start position in the list of all start positions of all exons from the gene
   positions <- as.vector(c(positions, start_pos))
 }
 length(positions) == length(gene_list)
+# final df
 gene_df <- data.frame(gene = gene_list, position=positions)
+
+
 
 ggplot(data = gene_df, aes(x = position)) +
   # chrX extremities in black
@@ -253,5 +265,5 @@ ggplot(data = gene_df, aes(x = position)) +
   geom_segment(aes(x = position, xend = position, y = 0, yend = 0.1), color = "red", linewidth = 0.05) +  # Draw red lines
   # scaling the axis
   ylim(0,0.2) +
-  scale_x_continuous(limits = c(0, 156040895)) +  # Set x-axis limits
+  scale_x_continuous(limits = c(0, 156040895)) +  # Set x-axis limits = size of chrX (in hg38)
   theme_void()  # Remove unnecessary plot elements
