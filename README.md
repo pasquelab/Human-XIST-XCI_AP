@@ -9,4 +9,4 @@
 **2.** The scRNA-Seq datasets sequenced in this study (Day 0 H9 Naive cells, D4 and D8 ASECRiAV cells with or without the presence of XIST)
 
 ## Data availability
-Raw and processed sequencing data for **Bulk RNA-Seq**, **scRNA-Seq**, **MED-Seq**, **CUT&RUN** and **ChIP-Seq** can be found here: GSE261711: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE261711
+Raw and processed sequencing data for **Bulk RNA-Seq**, **scRNA-Seq**, **MeD-Seq**, **CUT&RUN** and **ChIP-Seq** can be found here: GSE261711: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE261711
