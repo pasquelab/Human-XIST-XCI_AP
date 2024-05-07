@@ -1,4 +1,4 @@
-# Downsampling bam files that were merged (replicates), generate bigwigs and macs2 peakcalling peaks, on A. de Sousa,2023 capacitated ChIPseq data. 
+# Downsampling bam files that were merged (replicates), generate bigwigs and macs2 peakcalling peaks, on A. de Sousa, 2023 capacitated ChIPseq data. 
 ## 22/02/2024 Jeanne 
 
 configfile: "config.json"
