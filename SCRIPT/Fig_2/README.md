@@ -10,8 +10,8 @@ The different datasets were analysed as groups of data, each group of data was a
 
     - CUT_RUN_and_ChIPseq/
          - Agostinho-de-Sousa-et-al-2024_data/
-         - Naive_Primed_TSC_and_EXMC/
-         - CT27-TSCs_and_H9-TSCs-data/
+         - Naive_Primed_TSC_EXMC/
+         - H9-NK2_and_CT27_TSCs/
     - MeDseq/
   
 Raw data were placed in a `fastq/raw/` subfolder and processed using the provided snakemake workflows scripts and simple bash script, themselve gathered in a `script/` subfolder. The Snakemake workflows are composed of 4 files:
