@@ -7,6 +7,7 @@ Each dataset's raw data (fastq, available on GEO: [GSE261711](https://www.ncbi.n
 ## Usage 
 
 The different datasets were analysed as groups of data, each group of data was analysed separately in different folder:
+
     - CUT_RUN_and_ChIPseq/
          - Agostinho-de-Sousa-et-al-2024_data/
          - Naive_Primed_TSC_and_EXMC/
