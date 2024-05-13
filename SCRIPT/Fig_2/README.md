@@ -6,7 +6,14 @@ Each dataset's raw data (fastq, available on GEO: [GSE261711](https://www.ncbi.n
 
 ## Usage 
 
-Each group of data was analysed separately in different folder. Raw data were placed in a `fastq/raw/` subfolder and processed using the provided snakemake workflows scripts and simple bash script, themselve gathered in a `script/` subfolder. The Snakemake workflows are composed of 4 files:
+The different datasets were analysed as groups of data, each group of data was analysed separately in different folder:
+    - CUT_RUN_and_ChIPseq/
+         - Agostinho-de-Sousa-et-al-2024_data/
+         - Naive_Primed_TSC_and_EXMC/
+         - CT27-TSCs_and_H9-TSCs-data/
+    - MeDseq/
+  
+Raw data were placed in a `fastq/raw/` subfolder and processed using the provided snakemake workflows scripts and simple bash script, themselve gathered in a `script/` subfolder. The Snakemake workflows are composed of 4 files:
 - `Snakefile`: contains the actual workflow script.
 - `cluster_config.json`: contains the resources that are allocated to each workflow's rule. 
 - `config.json file`: must be modified prior to execution to fill in the paths of the working directory, genome indexes and annotation file; adapted to the repository structure of your cluster.
