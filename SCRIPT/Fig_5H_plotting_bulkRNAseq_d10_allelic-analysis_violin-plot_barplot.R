@@ -7,8 +7,8 @@ library(viridis)
 
 
 ##### Uploading depthperSNP files #####
-refFiles <- list.files(path = "data/SNPsplit/depthPerSNP/", pattern = "*.genome1.depthPERSNP")
-altFiles <- list.files(path = "data/SNPsplit/depthPerSNP/", pattern = "*.genome2.depthPERSNP")
+refFiles <- list.files(path = "X:/jeanne_test/bulk_RNAseq_Leo/allelic_analysis_bradley_method/bam/SNPsplit/depthPerSNP/", pattern = "*.genome1.depthPERSNP")
+altFiles <- list.files(path = "X:/jeanne_test/bulk_RNAseq_Leo/allelic_analysis_bradley_method/bam/SNPsplit/depthPerSNP/", pattern = "*.genome2.depthPERSNP")
 
 print("checking length of ref and alt files")
 length(refFiles)==length(altFiles)
@@ -16,9 +16,9 @@ length(refFiles)==length(altFiles)
 combinedFiles <- vector(mode="list")
 for(i in 1:length(refFiles)){
   combinedFiles[[i]] <- vector(mode="list")
-  combinedFiles[[i]]$ref <- unique(read.table(paste0("data/SNPsplit/depthPerSNP/",refFiles[i]), h=F)[,1:5])
+  combinedFiles[[i]]$ref <- unique(read.table(paste0("X:/jeanne_test/bulk_RNAseq_Leo/allelic_analysis_bradley_method/bam/SNPsplit/depthPerSNP/",refFiles[i]), h=F)[,1:5])
   colnames(combinedFiles[[i]]$ref) <- c("chr", "start", "stop", "length", "refDepth")
-  combinedFiles[[i]]$alt <- unique(read.table(paste0("data/SNPsplit/depthPerSNP/",altFiles[i]), h=F)[,1:5])
+  combinedFiles[[i]]$alt <- unique(read.table(paste0("X:/jeanne_test/bulk_RNAseq_Leo/allelic_analysis_bradley_method/bam/SNPsplit/depthPerSNP/",altFiles[i]), h=F)[,1:5])
   colnames(combinedFiles[[i]]$alt) <- c("chr", "start", "stop", "length", "altDepth")
 }
 
@@ -40,44 +40,16 @@ levels(allReadTotalStack$ind) <- c('KD dox -', 'KD dox +', 'WT dox -', 'WT dox +
 
 
 
+##### associating SNP to gene data (name, status) #####
 
-##### associating snp to gene data (name, status) #####
-
-XCIstatuses <- read.table("newcalls.xci.txt", h=T)# this is from B. Balaton 2015 paper (Overallscore), newscore is newer calls I made but never published. just use the published ones.
-exons <- read.table("hg38.exonsWgene.tsv", h=F) # this is chrX only
+# uploading gene data
+XCIstatuses <- read.table("newcalls.xci.txt", h=T)# this is from B. Balaton 2015 paper (Overallscore), newscore is newer calls I made but never published. just use the published ones
 allExons <- read.table("hg38.allChrs.exonsWgenes.tsv", h=T)
-
-# chrX only 
-getGene <- function(Xpos){
-
-  if(any(exons$V2<Xpos & exons$V3>Xpos)){
-    return(paste(unique(exons$V4[which(exons$V2<Xpos & exons$V3>Xpos)]), collapse=","))
-  } else return("no gene found")
-}
-
-getStatus <- function(Xpos){
-
-  gene <- exons$V4[which(exons$V2<Xpos & exons$V3>Xpos)]
-  status <- XCIstatuses$Overallscore[which(XCIstatuses$hg19.kgXref.geneSymbol%in%gene)]
-
-  if(any(c("Discordant", "VE", "MostlyVE")%in%status) |
-     (any(c("E","MostlyE")%in%status) & any(c( "S", "MostlyS")%in%status))){
-    return("variably escapes XCI")
-  } else if(any(c("S", "MostlyS")%in%status)) {
-    return("subject to XCI")
-  } else if(any(c("E", "MostlyE")%in%status)){
-    return("escapes from XCI")
-  } else if("PAR"%in%status){
-    return("PAR")
-  } else{ return("no XCI status known")}
-}
-
+Exons_X <- allExons[allExons$chr=="chrX",]
 
 allReadTotalStack$gene <- NA
 allReadTotalStack$status <- NA
 
-allReadTotalStack$gene[which(allReadTotalStack$chr=="chrX")] <- unlist(lapply(allReadTotalStack$SNP[which(allReadTotalStack$chr=="chrX")], getGene))
-allReadTotalStack$status[which(allReadTotalStack$chr=="chrX")] <- unlist(lapply(allReadTotalStack$SNP[which(allReadTotalStack$chr=="chrX")], getStatus))
 
 # For all chromosomes
 getGeneIncludeAutosomes <- function(SNPpos, chrExons){
@@ -94,7 +66,26 @@ for(chr in unique(allReadTotalStack$chr)){
   print(paste0(chr, " done. Next chr"))
 }
 
-# Adding autosomal chr status
+## Get X gene status:
+getStatus <- function(gene){
+  
+  status <- XCIstatuses$Overallscore[which(XCIstatuses$hg19.kgXref.geneSymbol%in%gene)]
+  
+  if(any(c("Discordant", "VE", "MostlyVE")%in%status) |
+     (any(c("E","MostlyE")%in%status) & any(c( "S", "MostlyS")%in%status))){
+    return("variably escapes XCI")
+  } else if(any(c("S", "MostlyS")%in%status)) {
+    return("subject to XCI")
+  } else if(any(c("E", "MostlyE")%in%status)){
+    return("escapes from XCI")
+  } else if("PAR"%in%status){
+    return("PAR")
+  } else{ return("no XCI status known")}
+}
+allReadTotalStack$status[which(allReadTotalStack$chr=="chrX")] <- unlist(lapply(allReadTotalStack$gene[which(allReadTotalStack$chr=="chrX")], getStatus))
+
+
+# Adding "autosomal" chr status for all non X genes
 allReadTotalStack$status[which(allReadTotalStack$chr!="chrX" & allReadTotalStack$gene != "no gene found")] <- "autosomal"
 
 
@@ -147,12 +138,6 @@ allReadTotalStack$XminXmaxRatio <- NA
 allReadTotalStack$minError <- NA
 allReadTotalStack$maxError <- NA
 
-# chrX only
-# allReadTotalStack[which(allReadTotalStack$chr=="chrX"),9:11] <-matrix(unlist(apply(allReadTotalStack[which(allReadTotalStack$chr=="chrX"),c(3,5)], 1, getMinMaxRatio)), ncol = 3, byrow = T)
-# colnames(allReadTotalStack)[9:11] <- c("XminXmaxRatio", "minError","maxError")
-
-
-# chrX + autosomes
 allReadTotalStack[which(allReadTotalStack$gene != "no gene found"),9:11] <- matrix(unlist(apply(allReadTotalStack[which(allReadTotalStack$gene != "no gene found"),c(3,5)], 1, getMinMaxRatio)), ncol = 3, byrow = T)
 colnames(allReadTotalStack)[9:11] <- c("XminXmaxRatio", "minError","maxError")
 
@@ -165,7 +150,6 @@ allReadTotalStack$depthFilter <- apply(allReadTotalStack[,c(3,5)], 1, sum)>29
 allReadTotalStack$depth <- apply(allReadTotalStack[,c(3,5)], 1, sum)
 
 # Saving the table at this step (because very long to generate again):
-
 write.table(allReadTotalStack, "allReadTotalStack_bulk-Leo.csv", sep = ",", col.names = T, row.names = F, quote = F)
 # allReadTotalStack <- read.csv("allReadTotalStack_bulk-Leo.csv", header = T)
 
@@ -182,6 +166,7 @@ getMedianperGene <- function(geneName, sampleName, minSNP=1, minDepth=29){
   } else return(NA)
 }
 
+# takes a very long time (several hours)
 for(r in 1:nrow(allelicRatiosPerGene)){
   for(c in 3:6){
     allelicRatiosPerGene[r,c] <- getMedianperGene(allelicRatiosPerGene$gene[r], colnames(allelicRatiosPerGene)[c], minDepth=29)
@@ -200,8 +185,9 @@ for(chr in unique(allReadTotalStack$chr)){
 
 # saving table at this step because very long to generate: 
 write.table(allelicRatiosPerGene, "allelicRatiosPerGene.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
-# opening the saved table: 
-#allelicRatiosPerGene <- read.table("allelicRatiosPerGene.tsv", header = T, sep = "\t")
+# opening the final table if saved: 
+# allelicRatiosPerGene <- read.table("allelicRatiosPerGene.tsv", header = T, sep = "\t")
+
 
 colnames(allelicRatiosPerGene)[3:6] <- unlist(c('KD dox -', 'KD dox +', 'WT dox -', 'WT dox +'))
 
@@ -214,8 +200,7 @@ allelicRatiosPerGeneStack$cellTypeOrdered <- factor(allelicRatiosPerGeneStack$in
 
 
 
-##### plot 1: violin plot mean allelic ratio per gene -> /!\ just chrX here !! #####
-
+##### Fig 5H: violin plot mean allelic ratio per gene -> /!\ just chrX here !! #####
 
 ggplot(allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$chr=="chrX",],
        aes(x=cellTypeOrdered, y=values*100, fill=cellTypeOrdered)) +
@@ -231,17 +216,50 @@ ggplot(allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$chr=="chrX",],
 
 
 
+##### Fig 5I: simple bar chart with proportion of mono and bi allelic genes + nb of informative genes #####
 
-
-##### plot 2: map of biallelic genes in KD dox that are not biallelic in KD dox - #####
-
-# adding allelism info based on ratio
+# adding allelism status info
 allelicRatiosPerGeneStack$allelism <- if_else(allelicRatiosPerGeneStack$values >= 0.25, "bi", "mono", NA)
 
+# counts genes 
+counts_all_genes <- allelicRatiosPerGeneStack %>%
+  filter(values != 'NA', chr == 'chrX') %>%
+  group_by(cellTypeOrdered) %>%
+  summarize(number_of_genes = n()) 
+counts_biall_genes <- allelicRatiosPerGeneStack %>%
+  filter(values != 'NA', chr == 'chrX') %>%
+  group_by(cellTypeOrdered) %>% 
+  filter(allelism == 'bi') %>%
+  summarize(nb_bi_genes = n())
+counts_mono_genes <- allelicRatiosPerGeneStack %>%
+  filter(values != 'NA', chr == 'chrX') %>%
+  group_by(cellTypeOrdered) %>% 
+  filter(allelism == 'mono') %>%
+  summarize(nb_mono_genes = n())
+counts <- data.frame(cell_type = counts_all_genes$cellTypeOrdered, nb_genes_tot = counts_all_genes$number_of_genes, nb_bi_genes = counts_biall_genes$nb_bi_genes, nb_mono_genes = counts_mono_genes$nb_mono_genes)
+counts$percent_bi <- counts$nb_bi_genes / counts$nb_genes_tot * 100
+counts$percent_mono <- counts$nb_mono_genes / counts$nb_genes_tot * 100
+
+
+# barplot
+allelicRatiosPerGeneStack %>% 
+  filter(values != 'NA', chr == 'chrX') -> allelic_analysis_barplot_df
+  
+ggplot(allelic_analysis_barplot_df, aes(x = cellTypeOrdered, fill = allelism)) +
+  geom_bar(stat = "count", , position = "fill") +
+  labs(x = "",
+       y = "Proportion of genes",
+       fill = "Allelism") +
+  theme_classic() 
+
+
+
+##### Map of XIST-loss-sensitive genes: biallelic in KD dox + that are not biallelic in KD dox - #####
+
 # Compute list of genes
-list_gene_bi_KD <- allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$cellTypeOrdered == 'KD dox +' & !is.na(allelicRatiosPerGeneStack$values) & allelicRatiosPerGeneStack$allelism == "bi" & allelicRatiosPerGeneStack$chr == 'chrX' ,]$gene 
-list_gene_bi_KDnodox <- allelicRatiosPerGeneStack[allelicRatiosPerGeneStack$cellTypeOrdered == 'KD dox -' & !is.na(allelicRatiosPerGeneStack$values) & allelicRatiosPerGeneStack$allelism == "bi" & allelicRatiosPerGeneStack$chr == 'chrX' ,]$gene 
-gene_list <- list_gene_bi_KD[!(list_gene_bi_KD %in% list_gene_bi_KDnodox)]
+gene_list<- allelicRatiosPerGene[allelicRatiosPerGene$chr == 'chrX' & allelicRatiosPerGene$`KD dox -`<0.25 & allelicRatiosPerGene$`KD dox +`>=0.25 & complete.cases(allelicRatiosPerGene[, c("KD dox -", "KD dox +", "WT dox -", "WT dox +")]),]$gene
+# write.table(gene_list, "deregulated_genes_bulkRNAseq_d10.txt", row.names = F, col.names = F, quote = F)
+
 # Get start position of each gene of the list
 positions <- c()
 for (gene_name in gene_list){
@@ -249,9 +267,8 @@ for (gene_name in gene_list){
   positions <- as.vector(c(positions, start_pos))
 }
 length(positions) == length(gene_list)
-# final df
+# as df
 gene_df <- data.frame(gene = gene_list, position=positions)
-
 
 
 ggplot(data = gene_df, aes(x = position)) +
@@ -267,3 +284,4 @@ ggplot(data = gene_df, aes(x = position)) +
   ylim(0,0.2) +
   scale_x_continuous(limits = c(0, 156040895)) +  # Set x-axis limits = size of chrX (in hg38)
   theme_void()  # Remove unnecessary plot elements
+
