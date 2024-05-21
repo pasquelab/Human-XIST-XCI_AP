@@ -21,10 +21,10 @@ if [ ! -d "${output_path}" ]; then
 fi
 
 
-singularity exec cutrun_processing.sif samtools merge -o ${output_path}H9-d0_H3K27me3_Filtered.merged.bam ${input_path}SRR22367278_Filtered.bam ${input_path}SRR22367277_Filtered.bam
-singularity exec cutrun_processing.sif samtools merge -o ${output_path}H9-d0_H3K9me3_Filtered.merged.bam ${input_path}SRR22367282_Filtered.bam ${input_path}SRR22367281_Filtered.bam
+singularity exec cutrun.sif samtools merge -o ${output_path}H9-d0_H3K27me3_Filtered.merged.bam ${input_path}SRR22367278_Filtered.bam ${input_path}SRR22367277_Filtered.bam
+singularity exec cutrun.sif samtools merge -o ${output_path}H9-d0_H3K9me3_Filtered.merged.bam ${input_path}SRR22367282_Filtered.bam ${input_path}SRR22367281_Filtered.bam
 
-singularity exec cutrun_processing.sif samtools merge -o ${output_path}H9-d10_H3K27me3_Filtered.merged.bam ${input_path}SRR22367276_Filtered.bam ${input_path}SRR22367275_Filtered.bam
-singularity exec cutrun_processing.sif samtools merge -o ${output_path}H9-d10_H3K9me3_Filtered.merged.bam ${input_path}SRR22367280_Filtered.bam ${input_path}SRR22367279_Filtered.bam
+singularity exec cutrun.sif samtools merge -o ${output_path}H9-d10_H3K27me3_Filtered.merged.bam ${input_path}SRR22367276_Filtered.bam ${input_path}SRR22367275_Filtered.bam
+singularity exec cutrun.sif samtools merge -o ${output_path}H9-d10_H3K9me3_Filtered.merged.bam ${input_path}SRR22367280_Filtered.bam ${input_path}SRR22367279_Filtered.bam
 
 
