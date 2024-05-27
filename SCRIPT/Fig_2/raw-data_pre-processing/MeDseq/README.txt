@@ -1,5 +1,11 @@
-Raw data can be downloaded from GEO with the following accession numbers: 
-- MeDseq data from this paper:
+
+
+
+MeDseq analysis was carried out as follow:
+
+Each dataset's raw data (fastq, available on GEO: [GSE261711](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE261711) ) were uploaded on a cluster and was firstly pre-processed using snakemake workflows (provided in the `raw_data_pre-processing/` folder). All softwares required for the analysis are encapsulated within a Singularity container image provided in XXX. The resulting intermediary files were further analyzed using R scripts (available in the `R/` folder). All other input files necessary for the R analysis are provided in `R/input-files/`. 
+
+Raw data (fastq files) can be downloaded from GEO with the following accession numbers: 
     - [GSM8215741](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215741):	Primed MeDseq Rep1
     - [GSM8215742](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215742):	Primed MeDseq Rep2
     - [GSM8215743](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215743):	TSC MeDseq Rep1
@@ -8,4 +14,16 @@ Raw data can be downloaded from GEO with the following accession numbers:
     - [GSM8215746](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215746): EXMC MeDseq Rep2
     - [GSM8215747](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215747):	Naive MeDseq Rep1
     - [GSM8215748](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215748):	Naive MeDseq Rep2
+
+These fastq files were placed in a `fastq/raw/` subfolder on a cluster and processed using the provided snakemake workflow script. The Snakemake workflow is composed of 4 files:
+- `Snakefile`: contains the actual workflow script.
+- `cluster_config.json`: contains the resources that are allocated to each workflow's rule. 
+- `config.json file`: must be modified prior to execution to fill in the paths of the working directory and genome indexes; adapted to the repository structure of your cluster.
+- `exeSnakemakeSlurm.sh`: bash script to run with the following command line: `sbatch exeSnakemakeSlurm.sh` that launches workflow execution.
+
+These workflows sometimes require other input files, given in the same folder.  
+
+All softwares required for the analysis are encapsulated within a Singularity container image provided in XXX, that should be downloaded and placed in the same folder as the snakemake workflow scripts prior to execution.
+
+The output med-seq bigwig files were then processed on R to generate Figure 2J (see link to quarto). All other input files required for plotting are given in `R/input-files/`.  
 
