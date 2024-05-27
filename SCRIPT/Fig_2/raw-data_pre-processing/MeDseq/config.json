@@ -1,8 +1,6 @@
 {
 	"output_path_human": "/shared/projects/xci/homo_sapiens/stem_cells/leo_2023/med_seq",
 
-	"human_gtf":"/shared/projects/xci/ReferenceGenomes/GRCh38/GTF/Homo_sapiens.GRCh38.90.gtf",
-	
 	"bowtie2_index_hg38":"/shared/projects/xci/ReferenceGenomes/GRCh38/bowtie2/hg38",
 	"bowtie2_index_mm10":"/shared/projects/xci/ReferenceGenomes/mm10/bowtie2/mm10",
 
