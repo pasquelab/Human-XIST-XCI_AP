@@ -22,5 +22,5 @@ Raw data were placed in a `fastq/raw/` subfolder and processed using the provide
 
 These workflows sometimes require other input files, given in the same folder.  
 
-The output files `.regions.bed.gz`, `.idxstats.txt` , `macs2_enlarged.bed` and med-seq bigwigs were then processed on R to generate Figure 2. All R scripts are given as a quarto document in `Fig_2_plotting/` folder [here](Human-XIST-XCI_AP/SCRIPT/Fig_2_plotting). All other input files required for plotting are given in `R/input-files/`.  
+The output files `.regions.bed.gz`, `.idxstats.txt` , `macs2_enlarged.bed` and med-seq bigwigs were then processed on R to generate Figure 2. All R scripts are given as a quarto document in `Fig_2_plotting/` folder [here](https://github.com/pasquelab/Human-XIST-XCI_AP/tree/main/SCRIPT/Fig_2_plotting). All other input files required for plotting are given in `R/input-files/`.  
 
