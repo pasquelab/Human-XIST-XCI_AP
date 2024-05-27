@@ -5,7 +5,6 @@ configfile: "config.json"
 
 outdir_human=config["output_path_human"]
 
-human_gtf=config["human_gtf"]
 
 rule all:
     input:
