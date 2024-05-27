@@ -3,14 +3,14 @@
 MeDseq analysis was carried out as follow:
 
 Raw data (fastq files) can be downloaded from GEO with the following accession numbers: 
-    - [GSM8215741](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215741):	Primed MeDseq Rep1
-    - [GSM8215742](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215742):	Primed MeDseq Rep2
-    - [GSM8215743](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215743):	TSC MeDseq Rep1
-    - [GSM8215744](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215744):  TSC MeDseq Rep2
-    - [GSM8215745](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215745):	EXMC MeDseq Rep1
-    - [GSM8215746](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215746):  EXMC MeDseq Rep2
-    - [GSM8215747](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215747):	Naive MeDseq Rep1
-    - [GSM8215748](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215748):	Naive MeDseq Rep2
+    - [GSM8215741](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215741): Primed MeDseq Rep1
+    - [GSM8215742](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215742): Primed MeDseq Rep2
+    - [GSM8215743](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215743): TSC MeDseq Rep1
+    - [GSM8215744](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215744): TSC MeDseq Rep2
+    - [GSM8215745](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215745): EXMC MeDseq Rep1
+    - [GSM8215746](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215746): EXMC MeDseq Rep2
+    - [GSM8215747](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215747): Naive MeDseq Rep1
+    - [GSM8215748](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8215748): Naive MeDseq Rep2
 
 These fastq files were placed in a `fastq/raw/` subfolder on a cluster and processed using the provided snakemake workflow script. The Snakemake workflow is composed of 4 files:
 - `Snakefile`: contains the actual workflow script.
