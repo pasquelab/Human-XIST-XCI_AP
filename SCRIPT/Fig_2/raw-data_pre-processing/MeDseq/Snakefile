@@ -31,6 +31,8 @@ rule bowtie2_mus_human:
     log:
         "log/{sample}_bowtie2_mus.log"
     priority: 2
+    singularity:
+        "cutrun.sif"
     shell:"""
     bowtie2 -x {params.index} -U {input.sample} {params.extra} --threads {threads} > {output}
     """
@@ -45,6 +47,8 @@ rule samtools_sort_mus_human:
     log:
         "log/{sample}_samtools_sort_mus.log"
     priority: 2
+    singularity:
+        "cutrun.sif"
     shell:
         "(samtools sort -@ {threads} \
             -o {output} \
@@ -68,6 +72,8 @@ rule bowtie2_hg38_human:
     log:
         "log/{sample}_bowtie2_hg38.log"
     priority: 2
+    singularity:
+        "cutrun.sif"
     shell:"""
     bowtie2 -x {params.index} -U {input.sample} {params.extra} --threads {threads} > {output}
     """
@@ -82,6 +88,8 @@ rule samtools_sort_hg38_human:
     log:
         "log/{sample}_samtools_sort_hg38.log"
     priority: 2
+    singularity:
+        "cutrun.sif"
     shell:
         "(samtools sort -@ {threads} \
             -o {output} \
@@ -100,6 +108,8 @@ rule qual_reads_human:
     priority: 3
     log:
         "log/{sample}_hg38_qual.log"
+    singularity:
+        "cutrun.sif"
     shell:
         "(samtools view -q {params.qual} -b {input.bam} > {output}) \
             2> {log}"
@@ -114,6 +124,8 @@ rule qual_reads_mus_human:
     priority: 3
     log:
         "log/{sample}_mus_qual.log"
+    singularity:
+        "cutrun.sif"
     shell:
         "(samtools view -q {params.qual} -b {input.bam} > {output}) \
             2> {log}"
@@ -127,6 +139,8 @@ rule samtools_index_hg38_human:
     priority: 3
     threads: 6
     log: "log/{sample}_index.log"
+    singularity:
+        "cutrun.sif"
     shell:"""
     samtools index -b -@ {threads} {input} 2> {log}
     """
@@ -140,6 +154,8 @@ rule samtools_index_mus_human:
     priority: 3
     threads: 6
     log: "log/{sample}_index.log"
+    singularity:
+        "cutrun.sif"
     shell:"""
     samtools index -b -@ {threads} {input} 2> {log}
     """
@@ -156,6 +172,8 @@ rule Perform_Xenofilter_human:
         bam=outdir_human+"/bam/{sample}/Filtered_bams/{sample}_Filtered.bam",
         bai=outdir_human+"/bam/{sample}/Filtered_bams/{sample}_Filtered.bam.bai"
     log:"log/{sample}_xenofilter.log"
+    singularity:
+        "cutrun.sif"
     shell:
         "(Rscript Xeno_human.R {input.human_bam} {input.mouse_bam}) 2> {log}"
 
@@ -171,6 +189,8 @@ rule bam_downsampling:
         bam_downsampled=outdir_human+"/bam/{sample}/Filtered_bams/{sample}_downsampled.bam"
     log:"log/{sample}_downsample.log"
     threads: 6
+    singularity:
+        "cutrun.sif"
     shell:"""
     reads=1500000
     bam={input.bam}
@@ -186,6 +206,8 @@ rule bam_downsampled_index:
         bam_downsampled_bai=outdir_human+"/bam/{sample}/Filtered_bams/{sample}_downsampled.bam.bai"
     threads: 6
     log: "log/{sample}_downsampled_index.log"
+    singularity:
+        "cutrun.sif"
     shell:"""
     samtools index -b -@ {threads} {input.bam_downsampled} 2> {log}
     """
@@ -204,6 +226,8 @@ rule bigwig_human:
         binSize=20,
         smoothLength=40
     log: "log/{sample}_BPM.log"
+    singularity:
+        "cutrun.sif"
     shell:
         "(bamCoverage -b {input.bam} \
         --normalizeUsing {params.normalizeUsing}  --binSize {params.binSize} \
@@ -220,6 +244,8 @@ rule bigwig_human_no_norm:
         binSize=20,
         smoothLength=40
     log: "log/{sample}_nor_norm.log"
+    singularity:
+        "cutrun.sif"
     shell:
         "(bamCoverage -b {input.bam} \
         --normalizeUsing {params.normalizeUsing}  --binSize {params.binSize} \
@@ -236,6 +262,8 @@ rule bigwig_human_rpgc:
         binSize=20,
         smoothLength=40
     log: "log/{sample}_rpgc.log"
+    singularity:
+        "cutrun.sif"
     shell:
         "(bamCoverage -b {input.bam} \
         --normalizeUsing {params.normalizeUsing} \
