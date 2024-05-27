@@ -1,0 +1,10 @@
+{
+	"HOMO_INDEX":"/shared/projects/xci/ReferenceGenomes/GRCh38/bowtie2/hg38",
+	"WORKING_PATH": "/shared/projects/tsc/cutrun_alldata_test/Peter_Rugg-Gunn_TSC_data/",
+
+	"SAMPLES":{
+		"CT27-TSC_H3K27me3":"CT27-TSC_H3K27me3",
+		"H9-TSC_H3K27me3":"H9-TSC_H3K27me3"
+	}
+}
+

@@ -1,0 +1,17 @@
+{
+	"output_path_human": "/shared/projects/xci/homo_sapiens/stem_cells/leo_2023/med_seq",
+
+	"bowtie2_index_hg38":"/shared/projects/xci/ReferenceGenomes/GRCh38/bowtie2/hg38",
+	"bowtie2_index_mm10":"/shared/projects/xci/ReferenceGenomes/mm10/bowtie2/mm10",
+
+	"sample_human":{
+		"EXMC-WT-rep1":"EXMC-WT-rep1",
+		"EXMC-WT-rep2":"EXMC-WT-rep2",
+		"Naive-WT-rep1":"Naive-WT-rep1",
+		"Naive-WT-rep2":"Naive-WT-rep2",
+		"Primed-WT-rep1":"Primed-WT-rep1",
+		"Primed-WT-rep2":"Primed-WT-rep2",
+		"TSC-WT-rep1":"TSC-WT-rep1",
+		"TSC-WT-rep2":"TSC-WT-rep2"
+	}
+}
