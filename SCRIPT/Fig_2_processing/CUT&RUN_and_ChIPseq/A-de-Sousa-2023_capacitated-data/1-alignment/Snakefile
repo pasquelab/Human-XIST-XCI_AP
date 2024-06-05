@@ -7,7 +7,7 @@ WORKDIR = config["WORKING_PATH"]
 rule all:
     input:
         #reporting
-        #fastqc_raw=expand(WORKDIR+"fastqc/raw/{sample}.R{r}_fastqc.html", sample=config["SAMPLES"], r=["1","2"]),
+        fastqc_raw=expand(WORKDIR+"fastqc/raw/{sample}.R{r}_fastqc.html", sample=config["SAMPLES"], r=["1","2"]),
         fastqc_trimmed=expand(WORKDIR+"fastqc/trimmed/{sample}_trimmed_R{r}_fastqc.html", sample=config["SAMPLES"], r=["1","2"]),
         idxstats=expand(WORKDIR+"idxstats/{sample}_Filtered_idxstats.txt", sample=config["SAMPLES"]),
         #bigwigs
