@@ -1,0 +1,2 @@
+The files in this folder are generated using imageJ on raw image files, merging all stacks by calculating the maximum grey intensity. 
+Then a line was drawn using the line segment tool across the nucleus, including the H2AK119ub/H3K27me3/XIST foci (probably inactive X), annotating the lines across all nuclei using RoI manager and then using plot profile per nucleus per channel.
