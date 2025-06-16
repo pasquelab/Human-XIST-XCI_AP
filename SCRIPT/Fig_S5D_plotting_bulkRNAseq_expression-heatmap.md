@@ -1,4 +1,4 @@
-## Figure Sup.5D: expression heatmap
+## Figure Sup.7D: expression heatmap
 
 Input data files:
 - trimmed bulk RNAseq fastq files (Naive, TSC, EXMC, Primed, and WT dox +/-, XIST iKD +/- dox)
@@ -97,7 +97,7 @@ tpm_data_long <- tpm_data_long %>%
   group_by(sample, gene_name) %>%
   summarize(tpm = sum(tpm)) 
 
-# Genes in categories (Bradley)
+# Genes in categories (B. Balaton)
 feats.core <- c("POU5F1", "SOX2","NANOG")
 feats.primed <- c("OTX2", "ZIC2", "CD24", "DUSP6", "TCF4")
 feats.naive <- c("KLF17", "KLF4", "SUSD2", "DNMT3L", "DPPA5", "TFCP2L1")
