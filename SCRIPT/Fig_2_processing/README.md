@@ -2,7 +2,7 @@
 
 Chromating profiling data (CUT&RUN, Cut&Tag, ChIPseq, MeDseq) analysis was carried out as follow:
 
-Each dataset's raw data (fastq, available on GEO: [GSE261711](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE261711) ) were uploaded on a cluster and was firstly pre-processed using snakemake workflows (provided in the `raw_data_pre-processing/` folder). All softwares required for the analysis are encapsulated within a Singularity container image provided in XXX. The resulting intermediary files were further analyzed using R scripts (available in the `R/` folder). All other input files necessary for the R analysis are provided in `R/input-files/`. 
+Each dataset's raw data (fastq, available on GEO: [GSE261711](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE261711) ) were uploaded on a cluster and was firstly pre-processed using snakemake workflows (provided in the `raw_data_pre-processing/` folder). All softwares required for the analysis are shared as a conda environment `.yml` file. The resulting output files were further analyzed using R scripts (available in the `R/` folder). All other input files necessary for the R analysis are provided in `R/input-files/`. 
 
 ## Usage 
 
@@ -12,6 +12,7 @@ The different datasets were analysed as groups of data, each group of data was a
          - A-de-Sousa-2023_capacitated-data/
          - Naive_Primed_TSC_EXMC/
          - H9-NK2_and_CT27_TSCs/
+         - clonal_TSCs/
     - MeDseq/
   
 Raw data were placed in a `fastq/raw/` subfolder and processed using the provided snakemake workflows scripts and simple bash scripts, in sequential order. The Snakemake workflows are composed of 4 files:
