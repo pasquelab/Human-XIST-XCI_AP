@@ -28,8 +28,6 @@ rule fastqc_raw:
     log:
         out="log/{sample_R}_log_fastqc.out",
         err="log/{sample_R}_log_fastqc.err"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         fastqc -o '{WORKDIR}fastqc/raw' {input.fastq} 1> {log.out} 2> {log.err}  
@@ -46,8 +44,6 @@ rule trimming:
     output:
         fastq1_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R1.fastq.gz",
         fastq2_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R2.fastq.gz"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         trim_galore --core 4 --length 50 --paired -o '{WORKDIR}fastq/trimmed' {input.fastq1} {input.fastq2}
@@ -64,8 +60,6 @@ rule fastqc_trimmed:
     log:
         out="log/{sample_R}_log_fastqc.out",
         err="log/{sample_R}_log_fastqc.err"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         fastqc -o '{WORKDIR}fastqc/trimmed' {input.fastq_trimmed} 1> {log.out} 2> {log.err}  
@@ -87,8 +81,6 @@ rule bowtie2_mus:
         extra="--local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -L 10 -X 700"
     log:
         "log/{sample}_bowtie2_mus.log"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         bowtie2 -x {params.index} -1 {input.fq1} -2 {input.fq2} {params.extra} --threads {threads} > {output} 2> {log}
@@ -103,8 +95,6 @@ rule samtools_sort_mus:
     threads: 4
     log:
         "log/{sample}_samtools_sort_mus.log"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         samtools sort -@ {threads} -o {output} {input} 2> {log}
@@ -126,8 +116,6 @@ rule bowtie2_hg38:
         cpu=8
     log:
         "log/{sample}_bowtie2_hg38.log"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         bowtie2 -x {params.index} -1 {input.fq1} -2 {input.fq2} {params.extra} --threads {params.cpu} > {output} 2> {log}
@@ -142,8 +130,6 @@ rule samtools_sort_hg38:
     threads: 8
     log:
         "log/{sample}_samtools_sort_hg38.log"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         samtools sort -@ {threads} -o {output} {input} 2> {log}
@@ -162,8 +148,6 @@ rule qual_filter:
         qual=10
     log:
         "log/{sample}_{species}_qualfilter.log"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         samtools view -q {params.qual} -b {input} > {output} 2> {log}
@@ -177,8 +161,6 @@ rule samtools_index:
     output: 
         temp(WORKDIR+"bam/{sample}.{species}.sorted.qfiltered.bam.bai")
     threads: 4
-    singularity:
-        "cutrun.sif"
     shell:
         """
         samtools index -b -@ {threads} {input} 
@@ -200,8 +182,6 @@ rule MarkDuplicates:
             M="log/{sample}_markdup.metrics.txt"
     log:
         "log/{sample}_{species}_MarkDuplicates.log"
-    singularity:
-        "cutrun.sif"
     shell:
         "(picard MarkDuplicates \
             I={input.bam} \
@@ -221,8 +201,6 @@ rule samtools_index_dedup:
     output:
         temp(WORKDIR+"bam/{sample}.{species}.dedupped.bam.bai")
     threads: 4 
-    singularity:
-        "cutrun.sif"
     shell:
         """
         samtools index -b -@ {threads} {input} 
@@ -242,8 +220,6 @@ rule Perform_Xenofilter:
         "log/{sample}_xenofilter.log"
     params:
         intermediate=WORKDIR+"bam/{sample}/"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         (Rscript Xeno.R {input.hg38} {input.mouse}) 2> {log}
@@ -261,8 +237,6 @@ rule idxstats:
         WORKDIR+"idxstats/{sample}_Filtered_idxstats.txt" 
     log: 
         "log/{sample}_Filtered_idxstats.err"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         samtools idxstats {input.bam} > {output} 2> {log}
@@ -284,8 +258,6 @@ rule mosdepth:
         binSize=10000
     threads: 4
     log: "log/{sample}_bed_mosdepth.log"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         mosdepth --threads {threads} -b {params.binSize} --no-per-base {wildcards.sample} {input.bam} 2> {log}
@@ -305,8 +277,6 @@ rule bigwig_raw:
         protected(WORKDIR+"bigwig/raw/{sample}.raw.all.bw")
     log: 
         "log/{sample}_raw_bw.log"
-    singularity:
-        "cutrun.sif"
     shell:
         """
         bamCoverage -b {input.bam} -o {output} 2> {log}
@@ -325,8 +295,6 @@ rule bigwig_bpm:
         smoothLength=40
     log: 
         "log/{sample}_BPM_bw.log"
-    singularity:
-        "cutrun.sif"
     shell:
         "(bamCoverage -b {input.bam} \
         --normalizeUsing {params.normalizeUsing}  --binSize {params.binSize} \
@@ -345,8 +313,6 @@ rule bigwig_bpm_chrX:
         smoothLength=40
     log: 
         "log/{sample}_BPM_chrX_bw.log"
-    singularity:
-        "cutrun.sif"
     shell:
         "(bamCoverage -b {input.bam} \
         --normalizeUsing {params.normalizeUsing}  --binSize {params.binSize} \
