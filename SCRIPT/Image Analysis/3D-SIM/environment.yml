@@ -1,0 +1,10 @@
+
+name: xist-analysis
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pandas=2.2.2
+  - numpy=2.0.2
+  - scipy=1.15.3
