@@ -21,7 +21,7 @@ These fastq files were placed in a `fastq/raw/` subfolder on a cluster and proce
 This workflow requires another input file, given in the same folder:
 - Xeno_human.R: an R script called by the workflow. This file must also be modified prior to execution to set the library paths for R packages (line 3). 
 
-All softwares required for the analysis are encapsulated within a Singularity container image provided in XXX, that should be downloaded and placed in the same folder as the snakemake workflow scripts prior to execution.
+All softwares required for the analysis are shared as a conda environment `.yml` file.
 
-The output med-seq bigwig files were then processed on R to generate Figure 2J (see link to quarto). All other input files required for plotting are given in `R/input-files/`.  
+The output med-seq bigwig files were then processed on R to generate Figure 2J. All other input files required for plotting are given in `R/input-files/`.  
 
