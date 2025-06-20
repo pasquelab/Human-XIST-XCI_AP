@@ -4,7 +4,7 @@
 Allelic analysis of Bulk RNAseq data was carried out as follow:
 Raw data were placed in a `fastq/raw/` subfolder and processed using the provided snakemake workflows scripts gathered in a `script/` subfolder.
 
-[CONDA]
+All softwares required for the analysis are shared as a conda environment .yml file.
 
 This workflow requires other input files: 
 - `genome.txt`: a genome file required by bedtools coverage, that defines the expected chromosome order in the input files (given in this folder).
