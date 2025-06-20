@@ -2,7 +2,7 @@
 ## Usage 
 
 Allelic analysis of Bulk RNAseq data was carried out as follow:
-Raw data were placed in a `fastq/raw/` subfolder and processed using the provided snakemake workflows scripts gathered in a `script/` subfolder.
+Raw data were placed in a `fastq/raw/` folder and processed using the provided snakemake workflows scripts gathered in a `script/` folder.
 
 All softwares required for the analysis are shared as a conda environment `.yml` file.
 
