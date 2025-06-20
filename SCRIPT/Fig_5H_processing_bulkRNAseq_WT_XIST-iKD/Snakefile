@@ -33,8 +33,6 @@ rule fastqc_raw:
     log:
         out="log/{sample_R}_log_fastqc_raw.out",
         err="log/{sample_R}_log_fastqc_raw.err"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         fastqc -o '{WORKDIR}fastqc/raw' -t 4 {input.fastq} 1> {log.out} 2> {log.err}  
@@ -52,8 +50,6 @@ rule trimming:
     output:
         fastq1_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R1.fastq.gz",
         fastq2_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R2.fastq.gz"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         trim_galore --core 4 --length 50 --paired --clip_R1 1 --clip_R2 1 -o '{WORKDIR}fastq/trimmed' {input.fastq1} {input.fastq2}
@@ -70,8 +66,6 @@ rule fastqc_trimmed:
     log:
         out="log/{sample_R}_log_fastqc_trimmed.out",
         err="log/{sample_R}_log_fastqc_trimmed.err"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         fastqc -o '{WORKDIR}fastqc/trimmed' -t 4 {input.fastq_trimmed} 1> {log.out} 2> {log.err}  
@@ -92,8 +86,6 @@ rule STAR_hg38:
         index_NMASKED=config["HG38_STAR_INDEX_NMASKED"],
         gtf=config["HG38_GTF_v31"],
         basename=WORKDIR+"bam/{sample}.hg38."
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         "STAR --readFilesCommand zcat \
         --outFileNamePrefix {params.basename} \
@@ -116,8 +108,6 @@ rule samtools_sort_hg38:
     threads: 8
     log:
         "log/{sample}_samtools_sort_hg38.log"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         samtools sort -@ {threads} -o {output} {input} 2> {log}
@@ -136,8 +126,6 @@ rule qual_filter_hg38:
         qual=10
     log:
         "log/{sample}_hg38_qualfilter.log"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         samtools view -q {params.qual} -b {input} > {output} 2> {log}
@@ -150,8 +138,6 @@ rule samtools_index:
     output: 
         temp(WORKDIR+"bam/{sample}.hg38.sorted.bam.bai")
     threads: 4 
-    singularity:
-        "bulk_RNAseq_processing.sif
     shell:
         """
         samtools index -b -@ {threads} {input} 
@@ -173,8 +159,6 @@ rule MarkDuplicates_hg38:
         M="log/{sample}_markdup_hg38.metrics.txt"
     log:
         "log/{sample}_MarkDuplicates_hg38.log"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         "(picard MarkDuplicates \
             I={input.bam} \
@@ -192,8 +176,6 @@ rule samtools_index_md_hg38:
     output:
         WORKDIR+"bam/{sample}.hg38.dedupped.bam.bai"
     threads: 4 
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         samtools index -b -@ {threads} {input} 
@@ -208,8 +190,6 @@ rule samtools_idxstats_hg38:
         WORKDIR+"bam/stat/{sample}.hg38.idxstats.txt"
     log: 
         "log/{sample}_idxstats_hg38.txt"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         samtools idxstats {input.bam} > {output} 2> {log}
@@ -232,8 +212,6 @@ rule snpsplit:
         snp_list=config["SNP_LIST"]
     log:
         "log/{sample}_snpsplit.txt"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         SNPsplit -o {params.outdir} --conflicting --paired --snp_file {params.snp_list} {input.bam}
@@ -252,8 +230,6 @@ rule sort_final:
     threads: 8
     log:
         "log/{sample}_samtools_sort_snpsplit_bams.log"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         samtools sort -@ {threads} -o {output.depthsnp_g1} {input.splitbam_g1} 2> {log}
@@ -275,8 +251,6 @@ rule depth_per_SNP:
         snp_bed=config["SNP_BED"]
     log:
         "log/{sample}_bedtoolscov_depthpersnp.log"
-    singularity:
-        "bulk_RNAseq_processing.sif"
     shell:
         """
         bedtools coverage -sorted -g genome.txt -d -a {params.snp_bed} -b {input.splitbam_g1} > {output.depthPERSNP_g1} 2> {log}
