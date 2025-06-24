@@ -1,0 +1,321 @@
+# Snakefile for raw data processing (fastq to bigwigs) of cutrun/chip-seq data with mouse read filtering, started on 09/11/2023 
+
+configfile: "config.json"
+
+WORKDIR = config["WORKING_PATH"]
+
+rule all:
+    input:
+        #reporting
+        fastqc_raw=expand(WORKDIR+"fastqc/raw/{sample}.R{r}_fastqc.html", sample=config["SAMPLES"], r=["1","2"]),
+        fastqc_trimmed=expand(WORKDIR+"fastqc/trimmed/{sample}_trimmed_R{r}_fastqc.html", sample=config["SAMPLES"], r=["1","2"]),
+        idxstats=expand(WORKDIR+"idxstats/{sample}_Filtered_idxstats.txt", sample=config["SAMPLES"]),
+        # bed
+        bed_region=expand(WORKDIR+"bed/{sample}.mosdepth.region.dist.txt", sample=config["SAMPLES"]),
+        #bigwigs
+        bigwig_raw=expand(WORKDIR+"bigwig/raw/{sample}.raw.all.bw", sample=config["SAMPLES"]),
+        bigwig_bpm=expand(WORKDIR+"bigwig/bpm/{sample}.BPM.all.bw", sample=config["SAMPLES"])
+
+
+
+# QC AND TRIMMING
+
+rule fastqc_raw:
+    input:
+        fastq=WORKDIR+"fastq/raw/{sample_R}.fastq.gz"
+    output:
+        html=WORKDIR+"fastqc/raw/{sample_R}_fastqc.html"
+    log:
+        out="log/{sample_R}_log_fastqc.out",
+        err="log/{sample_R}_log_fastqc.err"
+    shell:
+        """
+        fastqc -o '{WORKDIR}fastqc/raw' {input.fastq} 1> {log.out} 2> {log.err}  
+        """
+
+
+rule trimming:
+    input:
+        fastq1=WORKDIR+"fastq/raw/{sample}.R1.fastq.gz",
+        fastq2=WORKDIR+"fastq/raw/{sample}.R2.fastq.gz"
+    params:
+        fastq1_trimmed=WORKDIR+"fastq/trimmed/{sample}.R1_val_1.fq.gz",
+        fastq2_trimmed=WORKDIR+"fastq/trimmed/{sample}.R2_val_2.fq.gz"
+    output:
+        fastq1_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R1.fastq.gz",
+        fastq2_trimmed_renamed=WORKDIR+"fastq/trimmed/{sample}_trimmed_R2.fastq.gz"
+    shell:
+        """
+        trim_galore --core 4 --length 50 --paired -o '{WORKDIR}fastq/trimmed' {input.fastq1} {input.fastq2}
+        mv {params.fastq1_trimmed} {output.fastq1_trimmed_renamed}
+        mv {params.fastq2_trimmed} {output.fastq2_trimmed_renamed}
+        """
+
+
+rule fastqc_trimmed:
+    input:
+        fastq_trimmed=WORKDIR+"fastq/trimmed/{sample_R}.fastq.gz"
+    output:
+        html=WORKDIR+"fastqc/trimmed/{sample_R}_fastqc.html"
+    log:
+        out="log/{sample_R}_log_fastqc.out",
+        err="log/{sample_R}_log_fastqc.err"
+    shell:
+        """
+        fastqc -o '{WORKDIR}fastqc/trimmed' {input.fastq_trimmed} 1> {log.out} 2> {log.err}  
+        """
+
+
+
+# ALIGNMENT ON MOUSE GENOME (TO DISCARD MOUSE READS USING XENOFILTR)
+
+rule bowtie2_mus:
+    input:
+        fq1=WORKDIR+"fastq/trimmed/{sample}_trimmed_R1.fastq.gz", 
+        fq2=WORKDIR+"fastq/trimmed/{sample}_trimmed_R2.fastq.gz"
+    output:
+        temp(WORKDIR+"bam/{sample}.mus.bam")
+    threads: 8
+    params:
+        index=config["MOUSE_INDEX"],
+        extra="--local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -L 10 -X 700"
+    log:
+        "log/{sample}_bowtie2_mus.log"
+    shell:
+        """
+        bowtie2 -x {params.index} -1 {input.fq1} -2 {input.fq2} {params.extra} --threads {threads} > {output} 2> {log}
+        """
+
+
+rule samtools_sort_mus:
+    input:
+        WORKDIR+"bam/{sample}.mus.bam"
+    output:
+        temp(WORKDIR+"bam/{sample}.mus.sorted.bam")
+    threads: 4
+    log:
+        "log/{sample}_samtools_sort_mus.log"
+    shell:
+        """
+        samtools sort -@ {threads} -o {output} {input} 2> {log}
+        """
+
+
+
+# ALIGNMENT ON HUMAN GENOME 
+
+rule bowtie2_hg38:
+    input:
+        fq1=WORKDIR+"fastq/trimmed/{sample}_trimmed_R1.fastq.gz",
+        fq2=WORKDIR+"fastq/trimmed/{sample}_trimmed_R2.fastq.gz"
+    output:
+        temp(WORKDIR+"bam/{sample}.hg38.bam")
+    params:
+        index=config["HOMO_INDEX"],
+        extra="--local --very-sensitive-local --no-unal --no-mixed --no-discordant --phred33 -L 10 -X 700",
+        cpu=8
+    log:
+        "log/{sample}_bowtie2_hg38.log"
+    shell:
+        """
+        bowtie2 -x {params.index} -1 {input.fq1} -2 {input.fq2} {params.extra} --threads {params.cpu} > {output} 2> {log}
+        """
+
+
+rule samtools_sort_hg38:
+    input:
+        WORKDIR+"bam/{sample}.hg38.bam"
+    output:
+        temp(WORKDIR+"bam/{sample}.hg38.sorted.bam")
+    threads: 8
+    log:
+        "log/{sample}_samtools_sort_hg38.log"
+    shell:
+        """
+        samtools sort -@ {threads} -o {output} {input} 2> {log}
+        """
+
+
+
+# READ FILTERING 
+
+rule qual_filter:
+    input: 
+        WORKDIR+"bam/{sample}.{species}.sorted.bam"
+    output: 
+        temp(WORKDIR+"bam/{sample}.{species}.sorted.qfiltered.bam")
+    params: 
+        qual=10
+    log:
+        "log/{sample}_{species}_qualfilter.log"
+    shell:
+        """
+        samtools view -q {params.qual} -b {input} > {output} 2> {log}
+        """
+#Caution !!! change to remove wildcard species if no Xenofilter
+
+
+rule samtools_index:
+    input: 
+        WORKDIR+"bam/{sample}.{species}.sorted.qfiltered.bam"
+    output: 
+        temp(WORKDIR+"bam/{sample}.{species}.sorted.qfiltered.bam.bai")
+    threads: 4
+    shell:
+        """
+        samtools index -b -@ {threads} {input} 
+        """
+#Caution !!! change to remove wildcard species if no Xenofilter
+
+
+rule MarkDuplicates:
+    input: 
+        bam=WORKDIR+"bam/{sample}.{species}.sorted.qfiltered.bam",
+        bai=WORKDIR+"bam/{sample}.{species}.sorted.qfiltered.bam.bai"
+    output:
+        temp(WORKDIR+"bam/{sample}.{species}.dedupped.bam")
+    params:
+            CREATE_INDEX="false",
+            VALIDATION_STRINGENCY="SILENT",
+            REMOVE_DUPLICATES="true",
+            ASSUME_SORTED="true",
+            M="log/{sample}_markdup.metrics.txt"
+    log:
+        "log/{sample}_{species}_MarkDuplicates.log"
+    shell:
+        "(picard MarkDuplicates \
+            I={input.bam} \
+            O={output} \
+            CREATE_INDEX={params.CREATE_INDEX} \
+            VALIDATION_STRINGENCY={params.VALIDATION_STRINGENCY} \
+            REMOVE_DUPLICATES={params.REMOVE_DUPLICATES} \
+            ASSUME_SORTED={params.ASSUME_SORTED} \
+            M={params.M}) 2> {log}"
+# remove the temp() on output bam if not using xenofilter bc it will became the final bam
+# Create index: false and followed by samtools index and rule_all for analysis without xenofilter, with xenofilter unclear if necessary to keep it true
+
+
+rule samtools_index_dedup:
+    input: 
+        WORKDIR+"bam/{sample}.{species}.dedupped.bam"
+    output:
+        temp(WORKDIR+"bam/{sample}.{species}.dedupped.bam.bai")
+    threads: 4 
+    shell:
+        """
+        samtools index -b -@ {threads} {input} 
+        """
+# remove the temp() on output bam if not using xenofilter bc it will became the final bam
+# check if unecessary because aready done by MarkDuplicate's option CREATE_INDEX=true just above 
+
+
+rule Perform_Xenofilter:
+    input: 
+        hg38=WORKDIR+"bam/{sample}.hg38.dedupped.bam",
+        mouse=WORKDIR+"bam/{sample}.mus.dedupped.bam"
+    output:
+        bam=WORKDIR+"bam/{sample}_Filtered.bam",
+        bai=WORKDIR+"bam/{sample}_Filtered.bam.bai"
+    log:
+        "log/{sample}_xenofilter.log"
+    params:
+        intermediate=WORKDIR+"bam/{sample}/"
+    shell:
+        """
+        (Rscript Xeno.R {input.hg38} {input.mouse}) 2> {log}
+        mv {params.intermediate}Filtered_bams/*bam* {WORKDIR}bam/
+        cat {params.intermediate}Filtered_bams/XenofilteR.log >> {log}
+        rm -r {params.intermediate}
+        """
+
+
+rule idxstats:
+    input:
+        bam=WORKDIR+"bam/{sample}_Filtered.bam",
+        bai=WORKDIR+"bam/{sample}_Filtered.bam.bai"
+    output: 
+        WORKDIR+"idxstats/{sample}_Filtered_idxstats.txt" 
+    log: 
+        "log/{sample}_Filtered_idxstats.err"
+    shell:
+        """
+        samtools idxstats {input.bam} > {output} 2> {log}
+        """
+
+
+
+# BED
+
+rule mosdepth:
+    input:
+        bam=WORKDIR+"bam/{sample}_Filtered.bam",
+        bai=WORKDIR+"bam/{sample}_Filtered.bam.bai"
+    output:
+        dist=protected(WORKDIR+"bed/{sample}.mosdepth.global.dist.txt"),
+        region=protected(WORKDIR+"bed/{sample}.mosdepth.region.dist.txt"),
+        bed=protected(WORKDIR+"bed/{sample}.regions.bed.gz")
+    params:
+        binSize=10000
+    threads: 4
+    log: "log/{sample}_bed_mosdepth.log"
+    shell:
+        """
+        mosdepth --threads {threads} -b {params.binSize} --no-per-base {wildcards.sample} {input.bam} 2> {log}
+        mv ./{wildcards.sample}.mosdepth* {WORKDIR}bed/
+        mv ./{wildcards.sample}.regions.bed* {WORKDIR}bed/
+        """
+
+
+
+# BIGWIG
+
+rule bigwig_raw:
+    input:
+        bam=WORKDIR+"bam/{sample}_Filtered.bam",
+        bai=WORKDIR+"bam/{sample}_Filtered.bam.bai"
+    output: 
+        protected(WORKDIR+"bigwig/raw/{sample}.raw.all.bw")
+    log: 
+        "log/{sample}_raw_bw.log"
+    shell:
+        """
+        bamCoverage -b {input.bam} -o {output} 2> {log}
+        """
+
+
+rule bigwig_bpm:
+    input:
+        bam=WORKDIR+"bam/{sample}_Filtered.bam",
+        bai=WORKDIR+"bam/{sample}_Filtered.bam.bai"
+    output: 
+        protected(WORKDIR+"bigwig/bpm/{sample}.BPM.all.bw")
+    params:
+        normalizeUsing="BPM",
+        binSize=20,
+        smoothLength=40
+    log: 
+        "log/{sample}_BPM_bw.log"
+    shell:
+        "(bamCoverage -b {input.bam} \
+        --normalizeUsing {params.normalizeUsing}  --binSize {params.binSize} \
+        --smoothLength {params.smoothLength} -o {output}) 2> {log}"
+
+
+rule bigwig_bpm_chrX:
+    input:
+        bam=WORKDIR+"bam/{sample}_Filtered.bam",
+        bai=WORKDIR+"bam/{sample}_Filtered.bam.bai"
+    output: 
+        protected(WORKDIR+"bigwig/bpm/{sample}.BPM.chrX.bw")
+    params:
+        normalizeUsing="BPM",
+        binSize=20,
+        smoothLength=40
+    log: 
+        "log/{sample}_BPM_chrX_bw.log"
+    shell:
+        "(bamCoverage -b {input.bam} \
+        --normalizeUsing {params.normalizeUsing}  --binSize {params.binSize} \
+        --smoothLength {params.smoothLength} --region chrX -o {output}) 2> {log}"
+
+

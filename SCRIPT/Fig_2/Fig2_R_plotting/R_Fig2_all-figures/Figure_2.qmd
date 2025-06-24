@@ -1,0 +1,964 @@
+---
+title: "Panda_Carrillo_et_al_2024"
+author: "Jeanne"
+date: "19/06/2025"
+format: 
+  html:
+    code-fold: true
+    echo: true
+    error: false
+    warning: false
+    editor: visual
+    toc: true
+---
+
+# CUT&RUN data analysis - Figure 2
+
+## Figure 2.A
+
+Profile plots were generated via ucsc-genome browser by uploading bigwig files (obtained using the pre-processing scripts) with the following parameters:
+
+-   Display mode: full
+
+-   Merge method: add
+
+-   Missing data: missing is zero
+
+-   Type of graph: bar
+
+-   Track height: 80
+
+-   Data view scaling: use vertical viewing range setting (min: -0.04, max: 0.23)
+
+-   Transform function: none
+
+-   Windowing function: mean
+
+-   Smoothing window = 4
+
+-   Draw y indicator lines: OFF
+
+-   configuration of plot width = 1200 pixels
+
+-   For allelic tracks : track height 50, use vertical range setting (0-12)
+
+## Figure 2.B, 2.C, Sup3.C and Sup3.D
+
+Boxplots were generated on R using the code below, taking in input:
+
+-   Data: Table of read counts per chromosome for each sample: *read_counts_per_chrom.tsv* - Generated from samtools idxstats (1.13) output files of each sample (see pre-processing scripts) using the script *read_count_per_chrom.sh* with the following command lines:
+
+    ``` bash
+    read_counts_per_chrom.sh <list_of_idxstats_files> <output_directory>
+    ```
+
+    ```{bash}
+    bash input_files/read_counts_per_chrom.sh "data/idxstats/*idxstats.txt" "data/idxstats/"
+
+    head "data/idxstats/read_counts_per_chrom.tsv"
+
+    ```
+
+-   Other input file: *hg38.chrom.sizes* (containing chromosome sizes)
+
+R code:
+
+```{r}
+#| label: read-count-boxplots
+
+library(stringr)
+library(dplyr)
+library(doParallel)
+library(ggplot2)
+library(ggh4x) # to force plot panel size
+
+
+###### Uploading data #####
+raw_counts <- read.table(file = 'data/idxstats/read_counts_per_chrom.tsv', header = F)
+colnames (raw_counts) <- c("sample", "chr", "raw_count")
+# adding columns with cell types and mark
+raw_counts$cellType <- unlist(lapply(str_split(raw_counts$sample,pattern="_"),function(x){x[grep('TSC|EXMC|PXGL|Primed|H9-d10|H9-d0|Rugg-Gunn-TSC-like|Okae-TSC-CT|TSC-A|VP-Naive',x)]}))
+raw_counts$mark <- unlist(lapply(str_split(raw_counts$sample,pattern="_"),function(x){x[grep('H3K|H2A',x)]}))
+
+# size of each chromosome
+chrom_sizes <- read.csv("input_files/hg38.chrom.sizes", sep="\t", header=F, colClasses = c("character", "numeric"))
+colnames(chrom_sizes) <- c("chr", "chr_length")
+rownames(chrom_sizes) <- chrom_sizes$chr
+# removing chrY
+raw_counts <- raw_counts[raw_counts$chr != "chrY",]
+
+
+##### Calculating normalized count (by chrom length) #####
+# adding a column with chrom_length, using the chrom_sizes file
+raw_counts$chr_length <- raw_counts$chr
+
+for (x in rownames(chrom_sizes)){
+  raw_counts$chr_length[raw_counts$chr_length == x] <- chrom_sizes[x,'chr_length']
+}
+
+#normalise counts per chrom to the size of the chrom
+raw_counts$raw_count <- as.numeric(raw_counts$raw_count)
+raw_counts$chr_length <- as.numeric(raw_counts$chr_length)
+raw_counts$norm_count <- raw_counts$raw_count / raw_counts$chr_length
+
+
+##### Final table #####
+color_palette <- c("#A52F16", "#DBBB65","orange", "#9EB27C","#659374", "#8AADBB","#bddae5", "#4a8ea9", "#036790", "#a980c6")
+#71b6d1 #79adc2
+breaks_cellTypes <- c('Naive (ChIPseq)','Naive','VP-Naive','Capacitated (ChIPseq)','Primed','TSC', 'clonal TSC','H9-NK2 TSC', 'CT27 TSC (CUT&Tag)', 'EXMC')
+
+# mark as a factor
+counts <- raw_counts[,c("mark", "cellType","chr", "norm_count")]
+counts$mark <- as.factor(counts$mark)
+
+# adding a column with chr_type for plot legend 
+counts$chr_type <- counts$chr
+counts$chr_type[counts$chr_type!='chrX']='Autosome'
+counts$chr_type[counts$chr_type=='chrX']='ChrX'
+
+
+##### Plots #####
+generate_boxplot <- function(mark, ordered_cellTypes, labels_cellTypes) {
+  # get data 
+  data <- data.frame(counts[counts$mark == mark & counts$cellType %in% ordered_cellTypes,])
+  # celltype as a factor with levels (to control the order of the plots) 
+  data$cellType <- factor(data$cellType, levels = ordered_cellTypes, labels =  labels_cellTypes)
+  # boxplot 
+  ggplot(data = data, aes(x=cellType, y=norm_count, fill=cellType)) +
+  geom_boxplot(lwd = 0.2, outliers = F) +
+  # boxplot colors
+  scale_fill_manual(values = color_palette, breaks = breaks_cellTypes) +
+  # adding points for each chromosome
+  geom_point(data = data, aes(x=cellType, y=norm_count, shape=chr_type, size=chr_type, color=chr_type)) +
+  scale_color_manual(values = c( "#282828", "red"))  +
+  scale_shape_manual(values = c(16, 18)) +
+  scale_size_manual(values = c(1,2)) +
+  # esthetics
+  guides(fill= F) + #removing legend for fill=cell_type
+  theme(legend.title = element_blank(), # removing legend title
+        axis.text.x = element_text(colour = 'black', angle = 45, vjust = 1, hjust = 1),
+        axis.text.y = element_text(colour = 'black'),
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = 'black', linewidth = 0.5, fill = NA),
+        panel.background = element_rect(fill = "white")) + 
+  labs(title = mark) +
+  ylab("Normalized total read count") +
+  xlab('') +
+  #fixing a y limit identical for each plot
+  scale_y_continuous(limits = c(0,0.046), expand = c(0,0)) +
+  #fixing plot panel size using ggh4x package
+  force_panelsizes(rows = unit(2, "in"),
+                     cols = unit(2, "in"))
+}
+
+
+# Fig2B
+order1 <- c('Primed','H9-d10', 'H9-d0','PXGL', 'EXMC', 'TSC', 'TSC-A')
+labels1 <- c('Primed', 'Capacitated (ChIPseq)','Naive (ChIPseq)','Naive', 'EXMC','TSC', 'clonal TSC')
+
+plot_H3K27me3 <- generate_boxplot("H3K27me3", order1, labels1)
+plot_H3K27me3
+
+ggsave(file = "outputs/Fig2B_boxplot_readcount_H3K27me3.pdf", plot = plot_H3K27me3, width = 5, height = 5)
+
+
+# revisions Fig2C
+order2 <- c('Primed','PXGL', 'EXMC', 'TSC')
+labels2 <- c('Primed', 'Naive', 'EXMC','TSC')
+
+plot_H2AK119Ub <- generate_boxplot("H2AK119Ub", order2, labels2)
+plot_H2AK119Ub
+
+ggsave(file = "outputs/Fig2C_boxplot_readcount_H2AK119ub.pdf", plot = plot_H2AK119Ub, width = 5, height = 5)
+
+
+# revisions FigSup3C
+plot_H3K9me3 <- generate_boxplot("H3K9me3", order1, labels1)
+plot_H3K9me3
+
+ggsave(file = "outputs/FigS3C_boxplot_readcount_H3K9me3.pdf", plot = plot_H3K9me3, width = 5, height = 5)
+
+
+# revisions FigSup3D
+order3 <- c('H9-d10', 'PXGL', 'TSC', 'Rugg-Gunn-TSC-like', 'Okae-TSC-CT')
+labels3 <- c('Capacitated (ChIPseq)', 'Naive', 'TSC', 'H9-NK2 TSC', 'CT27 TSC (CUT&Tag)')
+plot_H3K27me3_supTSC <- generate_boxplot("H3K27me3", order3, labels3)
+plot_H3K27me3_supTSC
+
+ggsave(file = "outputs/FigS3D_boxplot_readcount_H3K27me3_TSC.pdf", plot = plot_H3K27me3_supTSC, width = 5, height = 5)
+
+```
+
+## Figure 2.D, 2.E, and Sup3.E
+
+Occupancy histogram were generated using the R code below, taking in input:
+
+-   Data: Macs2 output files enlarged using bedtools merge (see pre-processing scripts)
+
+-   Other input file: *hg38.chrom.sizes* (containing chromosome sizes information)
+
+```{r}
+#| label: occupancy-histograms
+
+#####
+library(dplyr)
+library(data.table)
+library(stringr)
+library(doParallel)
+library(ggplot2)
+library(ggpubr)
+library(ggh4x) #0.2.8 for fixing plot panel size
+#####
+
+
+#Uploading data : bedfiles, in a list of dataframe  
+bed_files=list.files(path = 'data/macs2/',pattern='enlarged')
+
+bed_list=NULL
+
+for(bed in bed_files){
+  
+  sample <- sub('_macs2_enlarged\\.bed','', bed) #extract sample name (replace enlarged.bed with nothing)
+  # loading bed file
+  bed_df <- as.data.frame(fread(file = paste0('data/macs2/', bed), header = F))
+  colnames(bed_df) <- c('chr','start','end')
+  # adding cell type and mark info
+  bed_df$cell_type <- unlist(lapply(str_split(sample,pattern="_"),function(x){x[grep('TSC|EXMC|PXGL|H9-d10|H9-d0',x)]}))
+  bed_df$mark <- unlist(lapply(str_split(sample,pattern="_"),function(x){x[grep('H3K|H2A',x)]}))
+  # removing alternative contigs
+  bed_df <- bed_df[!grepl('_',bed_df$chr),]
+  bed_df <- bed_df[!(bed_df$chr %in% c("chrM", "chrY")),]
+  
+  #calculating each peak's length
+  bed_df$start <- as.numeric(bed_df$start)
+  bed_df$end <- as.numeric(bed_df$end)
+  bed_df$peak_length <- bed_df$end - bed_df$start + 1
+  
+  bed_list[[sample]] <- bed_df
+}
+
+# merging all df of each sample together in one long table 
+all_samples_df <- bind_rows(bed_list)
+all_samples_df <- all_samples_df[,c("mark", "cell_type", "chr", "peak_length")]
+
+#calculating the sum of peak length for each chromosome
+all_samples_df %>% 
+  group_by(mark, cell_type, chr) %>% summarize(total_peaks = sum(peak_length)) -> all_bychrom_df
+all_bychrom_df <- as.data.frame(all_bychrom_df)#because it comes out as a tibble, necessary for downstream operations
+
+# Changing the name PXGL into naive for the plot 
+all_bychrom_df$cell_type[all_bychrom_df$cell_type=="PXGL"] <- "Naive"
+
+# adding info of chrom length
+chrom_sizes <- read.csv("input_files/hg38.chrom.sizes", sep="\t", header=F, colClasses = c("character", "numeric"))
+colnames(chrom_sizes) <- c("chr", "chr_length")
+rownames(chrom_sizes) <- chrom_sizes$chr
+chrom_sizes <- chrom_sizes[!grepl('_',chrom_sizes$chr),] # deleting lines corresponding to alternative contigs
+chrom_sizes <- chrom_sizes[!(chrom_sizes$chr %in% c('chrM','chrY')), ] # idem for chrY and chrM
+all_bychrom_df$chr_length=all_bychrom_df$chr # adding chrom_length to the table
+for (x in rownames(chrom_sizes)){
+  all_bychrom_df$chr_length[all_bychrom_df$chr_length==x]<-chrom_sizes[x,'chr_length']
+}
+
+# calculating coverage percent 
+all_bychrom_df$chr_length <- as.numeric(all_bychrom_df$chr_length)
+all_bychrom_df$percent_cov <- all_bychrom_df$total_peaks / all_bychrom_df$chr_length * 100
+all_bychrom_df <- all_bychrom_df[,c("mark", "cell_type", "chr", "percent_cov")]
+
+# adding a column chr_type to allow grouping by chrX vs autosome
+all_bychrom_df$chr_type <- all_bychrom_df$chr 
+all_bychrom_df$chr_type[all_bychrom_df$chr_type!='chrX'] <- 'Autosome'
+all_bychrom_df$chr_type[all_bychrom_df$chr_type =='chrX'] <- 'ChrX'
+
+
+all_bychrom_df$cell_type=factor(all_bychrom_df$cell_type, levels=c("H9-d10", "H9-d0","Naive","EXMC","TSC", "TSC-A"), labels = c('Capacitated (ChIPseq)', 'Naive (ChIPseq)','Naive','EXMC','TSC', 'clonal TSC'))
+color_palette <- c("#A52F16", "#DBBB65","orange", "#9EB27C","#659374", "#8AADBB","#bddae5", "#4a8ea9", "#036790", "#a980c6")
+breaks_cellTypes <- c('Naive (ChIPseq)','Naive','VP-Naive','Capacitated (ChIPseq)','Primed','TSC', 'clonal TSC','H9-NK2 TSC', 'CT27 TSC (CUT&Tag)', 'EXMC')
+
+
+generate_histogram <- function(mark) {
+  data <- data.frame(all_bychrom_df[all_bychrom_df$mark == mark,])
+  # boxplot
+  ggplot(data = data) +
+  geom_boxplot(aes(x=cell_type, y=percent_cov, fill=cell_type), width = 0.7, lwd = 0.2, outliers = F) +
+  scale_fill_manual(values = color_palette, breaks = breaks_cellTypes) +
+  # adding points for each chromosome
+  geom_point(aes(x=cell_type, y=percent_cov, fill=cell_type, shape=chr_type, size=chr_type, color=chr_type), alpha = 1 ) +  #can remove the black outline with stroke=NA in aes, but then cannot see points on the bar.
+  scale_color_manual(values = c( "#282828", "red"))  + 
+  scale_shape_manual(values = c(16, 18)) +
+  scale_size_manual(values = c(1,2)) +
+  # esthetics
+  scale_y_continuous(limits = c(0,70),expand = c(0,0)) +
+  ggtitle("Percentage of chromosome covered by", subtitle = mark) +
+  ylab('Percentage occupancy') +
+  xlab('') +
+  guides(fill= 'none') +
+  guides(alpha = guide_legend(override.aes = list(shape = NA), reverse = T)) +
+  theme(legend.title = element_blank(), # removing legend title
+        axis.text.x = element_text(colour = 'black', angle = 45, vjust = 1, hjust = 1),
+        axis.text.y = element_text(colour = 'black'),
+        panel.grid = element_blank(),
+        panel.border = element_rect(color = 'black', linewidth = 0.5, fill = NA),
+        panel.background = element_rect(fill = "white")) +
+  # fixing plot panel size using ggh4x package
+  force_panelsizes(rows = unit(2, "in"),
+                   cols = unit(2, "in"))
+  
+}
+
+plot_H3K27me3 <- generate_histogram(mark = "H3K27me3")
+plot_H3K27me3
+plot_H3K9me3 <- generate_histogram(mark = "H3K9me3")
+plot_H3K9me3
+plot_H2AK119Ub <- generate_histogram(mark = "H2AK119Ub")
+plot_H2AK119Ub
+
+ ggsave("outputs/Fig2D_occupancy_H3K27me3.pdf", plot = plot_H3K27me3, width = 6, height = 6)
+ ggsave("outputs/Fig2E_occupancy_H2AK119ub.pdf", plot = plot_H2AK119Ub, width = 6, height = 6)
+ ggsave("outputs/FigS3E_occupancy_H3K9me3.pdf", plot = plot_H3K9me3, width = 6, height = 6)
+```
+
+## Figure 2.F and 2.G
+
+Histograms were generated using the R code below, taking in input:
+
+-   Data: Macs2 output files enlarged using bedtools merge (see pre-processing scripts)
+-   Other input files:
+    -   Custom annotation file for each cell type (see below: [Custom annotation files])
+
+    -   A control bed file containing the start and end position of all chromosomes: *hg38_allchr.bed*
+
+### Custom annotation files
+
+Custom annotation files were build as follow:
+
+Homo_sapiens.GRCh38.cdna.fa.gz and Homo_sapiens.GRCh38.ncrna.fa.gz were downloaded from [ensembl.org](https://www.ensembl.org/info/data/ftp/index.html) and concatenated:
+
+``` bash
+zcat Homo_sapiens.GRCh38.cdna.fa.gz Homo_sapiens.GRCh38.ncrna.fa.gz > Homo_sapiens.GRCh38.cdna.ncrna.fa.gz 
+```
+
+This fasta file was used to generate an index for kallisto (0.46.0):
+
+``` bash
+kallisto index -i kallisto_transcripts.idx Homo_sapiens.GRCh38.cdna.ncrna.fa.gz 
+```
+
+The fasta file was also used to generate a table of all annotations:
+
+``` {.bash .basg}
+zcat Homo_sapiens.GRCh38.cdna.ncrna.fa.gz | grep "^>" | cut -d " " -f 1,3,4 | grep -v 'scaffold' | sed 's/^>//'| sed 's/gene://' | sed 's/gene://' | sed 's/ /\t/g' > table_annot_allchr_simplified.tsv
+```
+
+kallisto (0.46.0) was run on bulk RNAseq data of Naive (Alfeghaly et al., 2023), TSC and EXMC cells (this study) using the following command line:
+
+``` bash
+kallisto quant -i /shared/projects/xci/ReferenceGenomes/GRCh38/kallisto/Jeanne/kallisto_transcripts.idx -o ./ --rf-stranded --threads 8 -b 50 ../fastq/trimmed/PXGL_WT_R1_merged.fastq.gz ../fastq/trimmed/PXGL_WT_R2_merged.fastq.gz
+```
+
+The abundance.tsv output files from kallisto were processed via the following R script to filter this table to keep only one isoform per gene (the one with the highest estimated count):
+
+``` r
+library(dplyr)
+
+# Preparing kallisto data
+## uploading kallisto total annot table, and outputs .tsv for each cell type 
+kallisto_annot_allchr <- read.table(file = "X:/ReferenceGenomes/GRCh38/kallisto/Jeanne/table_annot_allchr_simplified.tsv", header=F, sep = '\t', col.names = c("target_id", "coord", "gene_id"))
+kallisto_PXGL_output <- read.table(file = "Y:/bulk_RNAseq_Charbel_PXGL/kallisto/abundance.tsv", header = T, sep = '\t')
+kallisto_TSC_output <- read.table(file = "Y:/bulk_RNAseq_Bradley/kallisto/merged_rep/TSC/abundance.tsv", header = T, sep = '\t')
+kallisto_EXMC_output <- read.table(file = "Y:/bulk_RNAseq_Bradley/kallisto/merged_rep/EXMC/abundance.tsv", header = T, sep = '\t')
+## keep only useful columns, and reordering by gene_id
+kallisto_PXGL <- merge(kallisto_annot_allchr, kallisto_PXGL_output, by = 1)[, c(2,3,1,6)]
+kallisto_PXGL <- kallisto_PXGL[order(kallisto_PXGL$gene_id),]
+kallisto_TSC <- merge(kallisto_annot_allchr, kallisto_TSC_output, by = 1)[, c(2,3,1,6)]
+kallisto_TSC <- kallisto_TSC[order(kallisto_TSC$gene_id),]
+kallisto_EXMC <- merge(kallisto_annot_allchr, kallisto_EXMC_output, by = 1)[, c(2,3,1,6)]
+kallisto_EXMC <- kallisto_EXMC[order(kallisto_EXMC$gene_id),]
+
+## keeping only "the most transcribed isoform" per gene
+PXGL_most_expressed_isof.df <- kallisto_PXGL %>%
+  group_by(gene_id) %>%
+  slice_max(order_by = est_counts, n = 1, with_ties = F)
+write.table(PXGL_most_expressed_isof.df, file = "annotation_building/PXGL_most_expressed_isof.tsv", sep = '\t', quote = F, row.names = F, col.names = F)
+
+TSC_most_expressed_isof.df <- kallisto_TSC %>%
+  group_by(gene_id) %>%
+  slice_max(order_by = est_counts, n = 1, with_ties = F)
+write.table(TSC_most_expressed_isof.df, file = "annotation_building/TSC_most_expressed_isof.tsv", sep = '\t', quote = F, row.names = F, col.names = F)
+
+EXMC_most_expressed_isof.df <- kallisto_EXMC %>%
+  group_by(gene_id) %>%
+  slice_max(order_by = est_counts, n = 1, with_ties = F)
+write.table(EXMC_most_expressed_isof.df, file = "annotation_building/EXMC_most_expressed_isof.tsv", sep = '\t', quote = F, row.names = F, col.names = F)
+```
+
+From these results, a bed file was constructed as follow to annotate gene bodies from the TSS and TES coordinates given in kallisto output, and also promoters and upstream regions define respectively as the 1kb region upstream of the TSS and the 4kb region upstream of the promoter:
+
+``` {.bash .R}
+cat TSC_most_expressed_isof.tsv | cut -f 1,2,3 | sed 's/chromosome:GRCh38:/chr/' | sed 's/:/\t/g' | cut -f 1,2,3,5,6 | awk '{print $0 "\t" "gene_body"}' | grep -v 'chrMT' | awk 'BEGIN{FS=OFS="\t"} {print $1, $2 - 1000, $2, $4, $5, "promoter"} {print $0}' | awk 'BEGIN{FS=OFS="\t"} $6=="promoter"{print $1, $2 - 4000 , $2, $4, $5, "upstream_1-5kb" } {print $0}' | sort -k1,1V -k2,2n -k3,3n > TSC_most_expr_isof_annot_promot_upstream.bed
+cat EXMC_most_expressed_isof.tsv | cut -f 1,2,3 | sed 's/chromosome:GRCh38:/chr/' | sed 's/:/\t/g' | cut -f 1,2,3,5,6 | awk '{print $0 "\t" "gene_body"}' | grep -v 'chrMT' | awk 'BEGIN{FS=OFS="\t"} {print $1, $2 - 1000, $2, $4, $5, "promoter"} {print $0}' | awk 'BEGIN{FS=OFS="\t"} $6=="promoter"{print $1, $2 - 4000 , $2, $4, $5, "upstream_1-5kb" } {print $0}' | sort -k1,1V -k2,2n -k3,3n > EXMC_most_expr_isof_annot_promot_upstream.bed
+cat PXGL_most_expressed_isof.tsv | cut -f 1,2,3 | sed 's/chromosome:GRCh38:/chr/' | sed 's/:/\t/g' | cut -f 1,2,3,5,6 | awk '{print $0 "\t" "gene_body"}' | grep -v 'chrMT' | awk 'BEGIN{FS=OFS="\t"} {print $1, $2 - 1000, $2, $4, $5, "promoter"} {print $0}' | awk 'BEGIN{FS=OFS="\t"} $6=="promoter"{print $1, $2 - 4000 , $2, $4, $5, "upstream_1-5kb" } {print $0}' | sort -k1,1V -k2,2n -k3,3n > PXGL_most_expr_isof_annot_promot_upstream.bed
+```
+
+Enhancers data were downloaded from the [FANTOM5 consortium website](https://fantom.gsc.riken.jp/5/datafiles/reprocessed/hg38_v9/extra/enhancer/), reformatted and concatenated with the annotation files build above:
+
+``` {.bash .R}
+zcat F5.hg38.enhancers.bed.gz | sort -k1,1V -k2,2n -k3,3n | cut -f 1,2,3 | awk 'BEGIN{id=0} {id +=1 ; print $0 "\t" "NA\tenhancer_" id "\tenhancer"}' > F5.hg38.enhancers.allchr.reformatted.bed
+cat F5.hg38.enhancers.allchr.reformatted.bed TSC_most_expr_isof_annot_promot_upstream.bed | sort -k1,1V -k2,2n -k3,3n > TSC_most_expr_isof_annot_promot_upstream_enhancers.bed
+cat F5.hg38.enhancers.allchr.reformatted.bed EXMC_most_expr_isof_annot_promot_upstream.bed | sort -k1,1V -k2,2n -k3,3n > EXMC_most_expr_isof_annot_promot_upstream_enhancers.bed
+cat F5.hg38.enhancers.allchr.reformatted.bed PXGL_most_expr_isof_annot_promot_upstream.bed | sort -k1,1V -k2,2n -k3,3n > PXGL_most_expr_isof_annot_promot_upstream_enhancers.bed
+```
+
+Intergenic regions were constructed using bedtools substract (2.30.0), defined as all regions that were not annotated as gene body, promoter, upstream or enhancer:
+
+``` bash
+bedtools subtract -a hg38_allchr.bed -b TSC_most_expr_isof_annot_promot_upstream_enhancers.bed | cut -f 1,2,3,4 | awk '{print $1, $2, $3, "\tNA\tNA\tintergenic"}' | cat - TSC_most_expr_isof_annot_promot_upstream_enhancers.bed | sort -k1,1V -k2,2n -k3,3n > TSC_genes_annot_from_kallisto_with-enhancers.bed
+bedtools subtract -a hg38_allchr.bed -b EXMC_most_expr_isof_annot_promot_upstream_enhancers.bed | cut -f 1,2,3,4 | awk '{print $1, $2, $3, "\tNA\tNA\tintergenic"}' | cat - EXMC_most_expr_isof_annot_promot_upstream_enhancers.bed | sort -k1,1V -k2,2n -k3,3n > EXMC_genes_annot_from_kallisto_with-enhancers.bed
+bedtools subtract -a hg38_allchr.bed -b PXGL_most_expr_isof_annot_promot_upstream_enhancers.bed | cut -f 1,2,3,4 | awk '{print $1, $2, $3, "\tNA\tNA\tintergenic"}' | cat - PXGL_most_expr_isof_annot_promot_upstream_enhancers.bed | sort -k1,1V -k2,2n -k3,3n > PXGL_genes_annot_from_kallisto_with-enhancers.bed
+```
+
+Finally, these bed files were reformatted to fit the *read_annotations* function requirement of *annotatr* (1.28.0) on R.
+
+``` bash
+cat TSC_genes_annot_from_kallisto_with-enhancers.bed | awk '{ print $1 "\t" $2 "\t" $3 "\t" $4 "\t" "0" "\t" "." "\t" $5 "\t" $4 "\t" "test" "\t" $6}' > TSC_genes_annot_from_kallisto_with-enhancers_for-annotatr.bed
+cat EXMC_genes_annot_from_kallisto_with-enhancers.bed | awk '{ print $1 "\t" $2 "\t" $3 "\t" $4 "\t" "0" "\t" "." "\t" $5 "\t" $4 "\t" "test" "\t" $6}' > EXMC_genes_annot_from_kallisto_with-enhancers_for-annotatr.bed
+cat PXGL_genes_annot_from_kallisto_with-enhancers.bed | awk '{ print $1 "\t" $2 "\t" $3 "\t" $4 "\t" "0" "\t" "." "\t" $5 "\t" $4 "\t" "test" "\t" $6}' > PXGL_genes_annot_from_kallisto_with-enhancers_for-annotatr.bed
+```
+
+### Histograms
+
+R code:
+
+```{r}
+#| label: annot-covered-histograms
+
+# R version used : 4.3.2
+library(annotatr) #v.1.28.0 
+library(GenomicRanges)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(doParallel) 
+library(ggplot2)
+
+
+##### Uploading the different peak datasets: #####
+
+## peaks from macs2 enlarged with bedtools merge
+peaks_H3K27me3_PXGL.gr <- read_regions(con = "data/macs2/PXGL_H3K27me3_macs2_enlarged.bed" , genome = 'hg38', format = 'bed')
+peaks_H3K27me3_TSC.gr <- read_regions(con = "data/macs2/TSC_H3K27me3_macs2_enlarged.bed" , genome = 'hg38', format = 'bed')
+peaks_H3K27me3_EXMC.gr <- read_regions(con = "data/macs2/EXMC_H3K27me3_macs2_enlarged.bed" , genome = 'hg38', format = 'bed')
+peaks_H2AK119Ub_PXGL.gr <- read_regions(con = "data/macs2/PXGL_H2AK119Ub_macs2_enlarged.bed" , genome = 'hg38', format = 'bed')
+peaks_H2AK119Ub_TSC.gr <- read_regions(con = "data/macs2/TSC_H2AK119Ub_macs2_enlarged.bed" , genome = 'hg38', format = 'bed')
+peaks_H2AK119Ub_EXMC.gr <- read_regions(con = "data/macs2/EXMC_H2AK119Ub_macs2_enlarged.bed" , genome = 'hg38', format = 'bed')
+
+## control chrX and chr7 : making copies to be annotated with different annotation set (one for each cell_type) as control
+whole_chr_PXGL.gr = read_regions(con = "input_files/hg38_allchr.bed" , genome = 'hg38', format = 'bed')
+whole_chr_TSC.gr = read_regions(con = "input_files/hg38_allchr.bed" , genome = 'hg38', format = 'bed')
+whole_chr_EXMC.gr = read_regions(con = "input_files/hg38_allchr.bed" , genome = 'hg38', format = 'bed')
+
+peaksets_list <- GRangesList(whole_chr_PXGL.gr,
+                             whole_chr_TSC.gr,
+                             whole_chr_EXMC.gr,
+                         peaks_H3K27me3_PXGL.gr,
+                         peaks_H3K27me3_TSC.gr,
+                         peaks_H3K27me3_EXMC.gr,
+                         peaks_H2AK119Ub_PXGL.gr,
+                         peaks_H2AK119Ub_TSC.gr, 
+                         peaks_H2AK119Ub_EXMC.gr
+                         )
+
+# order them for the plot 
+names_peaksets <- c("whole_chr_PXGL",
+                    "whole_chr_TSC",
+                    "whole_chr_EXMC",
+                    "H3K27me3_PXGL",
+                    "H3K27me3_TSC",
+                    "H3K27me3_EXMC",
+                    "H2AK119Ub_PXGL",
+                    "H2AK119Ub_TSC",
+                    "H2AK119Ub_EXMC")
+
+names(peaksets_list) <- names_peaksets
+peaksets_list <- as.list(peaksets_list)
+
+
+##### Annotation #####
+
+# preparing annotation set
+## uploading custom annotations made from kallisto
+read_annotations(con = "input_files/TSC_genes_annot_from_kallisto_with-enhancers_for-annotatr.bed", genome='hg38', name = 'kallisto_annot_TSC', format = 'bed', extraCols = c( tx_id='character', gene_id='character', type="character", symbol="character" ))
+read_annotations(con = "input_files/EXMC_genes_annot_from_kallisto_with-enhancers_for-annotatr.bed", genome='hg38', name = 'kallisto_annot_EXMC', format = 'bed', extraCols = c( tx_id='character', gene_id='character', type="character", symbol="character" ))
+read_annotations(con = "input_files/PXGL_genes_annot_from_kallisto_with-enhancers_for-annotatr.bed", genome='hg38', name = 'kallisto_annot_PXGL', format = 'bed', extraCols = c( tx_id='character', gene_id='character', type="character", symbol="character" ))
+#print(annotatr_cache$get('hg38_custom_kallisto_annot_TSC'))
+
+# build annotation
+annots_custom_TSC <- c ('hg38_custom_kallisto_annot_TSC')
+annots_custom_EXMC <- c ('hg38_custom_kallisto_annot_EXMC')
+annots_custom_PXGL <- c ('hg38_custom_kallisto_annot_PXGL')
+
+annotations_TSC <- build_annotations(genome = 'hg38', annotations = annots_custom_TSC )
+annotations_EXMC <- build_annotations(genome = 'hg38', annotations = annots_custom_EXMC )
+annotations_PXGL <- build_annotations(genome = 'hg38', annotations = annots_custom_PXGL )
+
+annotation_list <- list( PXGL = annotations_PXGL,
+                         TSC = annotations_TSC,
+                         EXMC = annotations_EXMC)
+
+# annotating peaksets
+## functions
+annotate <- function(peaks_gr, annotations) {
+  annotated_gr = annotate_regions(
+    regions = peaks_gr,
+    annotations = annotations,
+    ignore.strand = TRUE,
+    quiet = FALSE
+  )
+  return(data.frame(annotated_gr))
+}
+
+calculate_overlap <- function(data) {
+  data <- data %>%
+    mutate(intersection_start = ifelse(data$annot.start >= data$start, data$annot.start, data$start)) %>%
+    mutate(intersection_end = ifelse(data$annot.end <= data$end, data$annot.end, data$end))
+  
+  data$overlapping_width <- data$intersection_end - data$intersection_start + 1 
+  data$overlapping_percent <- data$overlapping_width/data$annot.width * 100
+  
+  return(data)
+}
+
+## analysis
+annotated_peaksets <- list()
+
+for (i in 1:length(peaksets_list)) { #loop through each table=peakset
+  gr <- peaksets_list[[i]]
+  peakset_name <- names(peaksets_list)[i]
+  # find the appropriate annotation set to use based on the name
+  if (grepl('TSC', peakset_name, ignore.case = TRUE)) {
+    annotation_to_use <- annotations_TSC
+    cell_type <- 'TSC'
+  } else if (grepl('PXGL', peakset_name, ignore.case = TRUE)) {
+    annotation_to_use <- annotations_PXGL
+    cell_type <- 'PXGL'
+  } else if (grepl('EXMC', peakset_name, ignore.case = TRUE)) {
+    annotation_to_use <- annotations_EXMC
+    cell_type <- 'EXMC'
+  } else {
+    warning("Unknown cell type for peakset: ", peakset_name, ". PXGL annotation used.")
+    annotation_to_use <- annotations_PXGL
+    cell_type <- peakset_name
+  }
+  # Annotate
+  annotated_df <- annotate(gr, annotation_to_use)
+  # Calculate overlap length
+  annotated_df <- calculate_overlap(annotated_df)
+  # exchange annot.symbol and annot.type because didn't manage to load custom annots properly
+  annot_set_id <- annotated_df$annot.type
+  annotated_df$annot.type <- annotated_df$annot.symbol
+  annotated_df$annot.symbol <- annot_set_id
+  # add columns with the peakset info to allow making groups during plotting 
+  ## peakset name
+  annotated_df$peakset <- peakset_name
+  ## mark
+  if (grepl('H3K27me3', peakset_name, ignore.case = T)) {
+    annotated_df$mark <- "H3K27me3"
+  } else if (grepl('H2AK119Ub', peakset_name, ignore.case = T)) {
+    annotated_df$mark <- "H2AK119Ub"
+  } else {
+    annotated_df$mark <- "None"
+  }
+  ## cell type
+  annotated_df$cell_type <- cell_type
+  if (grepl('whole', peakset_name, ignore.case = T)) { # correctly name the controls whose cell types are currently annotated EXMC TSC etc which is incorrect
+    annotated_df$cell_type <- peakset_name
+  } else if (grepl('DA', peakset_name, ignore.case = T)) { 
+    annotated_df$cell_type <- peakset_name
+  }
+  # Filtering to keep only chrX and chr7
+  annotated_df <- annotated_df[annotated_df$seqnames %in% c('chr7', 'chrX'),]
+  # Store result in the list
+  annotated_peaksets[[i]] <- annotated_df
+}
+
+# renaming the df in the list
+names(annotated_peaksets) <- names_peaksets
+
+
+##### plot histogram #####
+
+palette_paper_3C <- c( "#DBBB65", "#a980c6", "#8AADBB")
+
+
+calculate_percentage <- function(data, gp_cell_type, control_df) {
+  if (gp_cell_type == 'PXGL') {
+    ctrl_gp <- filter(control_df, cell_type == 'whole_chr_PXGL') 
+  } else if (gp_cell_type == 'TSC') {
+    ctrl_gp <- filter(control_df, cell_type == 'whole_chr_TSC') 
+  } else if (gp_cell_type == 'EXMC') {
+    ctrl_gp <- filter(control_df, cell_type == 'whole_chr_EXMC') 
+  }
+  
+  ctrl_gp <- ctrl_gp[,c('seqnames', 'annot.type', 'counts_annot')]
+  
+  data %>%
+    left_join(ctrl_gp, by = c("seqnames", "annot.type"), suffix = c("", "_control")) %>%
+    mutate(percentage_of_chr = counts_annot / counts_annot_control * 100) 
+}
+
+
+generate_histogram <- function(annotated_peaksets_list, mark, threshold_covered_percentage = 75, color_palette) {
+  # preparing summary table
+  annot_count_tables <- list() # initiating empty list
+  for (i in 1:length(annotated_peaksets_list)) { 
+    # counting nb of covered annotation, for each annot.type, for each peakset
+    count_table <- annotated_peaksets_list[[i]] %>%
+      filter(overlapping_percent > threshold_covered_percentage) %>%
+      group_by(mark, cell_type, seqnames, annot.type) %>%
+      summarise(counts_annot = n()) # counting the number of annotation falling in each category
+    annot_count_tables[[i]] <- count_table # store the summary table in the list initiated above
+  }
+  # merging the list of df in one long df 
+  annot_counts_alldata <- bind_rows(annot_count_tables)
+  # removing all 'intergenic' data because unused here
+  annot_counts_alldata <- annot_counts_alldata[!(annot_counts_alldata$annot.type == 'intergenic'),]
+  # separating the long table in two, one ctrl, one with target data
+  control_df <- annot_counts_alldata[ annot_counts_alldata$mark == 'None', ]
+  target_df <- annot_counts_alldata[ annot_counts_alldata$mark == mark, ]
+  # calculate percentage of control chr: 
+  histogram_table <- target_df %>%
+    group_by(cell_type) %>%
+    group_modify(~ calculate_percentage(.,.y, control_df))
+  # variables as factor to control order in the plot 
+  histogram_table$cell_type <- factor(x = histogram_table$cell_type, levels = c("PXGL", "EXMC", "TSC"), labels = c("Naive", "EXMC", "TSC"))
+  histogram_table$annot.type <- factor(x = histogram_table$annot.type, levels = c("intergenic", "enhancer", "upstream_1-5kb", "promoter", "gene_body"), label = c("intergenic", "enhancer", "upstream", "promoter", "gene body"))
+  histogram_table$seqnames <- factor(x = histogram_table$seqnames, levels = c( 'chrX', 'chr7'))
+  # plot
+  ggplot(data = histogram_table, aes(x = annot.type, y = percentage_of_chr, fill = cell_type)) +
+    # bars displaying the mean of each replicates
+    geom_bar(stat = 'summary',position = "dodge", color='white') + 
+    scale_fill_manual(values = color_palette) +
+    # points for each replicates
+    labs(
+      title = paste("Percentage of chr annotations covered by", mark),
+      subtitle = paste("Covered threshold = ", threshold_covered_percentage, "%"),
+      x = "", 
+      y = 'Percentage of annotations covered'
+    ) +
+    facet_grid(~ seqnames, scales = "free_x", space = "free_x") +
+    scale_y_continuous(limits = c(0,50), expand = c(0,0)) +
+    theme_classic() +
+    theme(legend.title = element_blank())
+}
+
+
+
+plot_hist_H3K27 <- generate_histogram(annotated_peaksets, "H3K27me3", 75, palette_paper_3C)
+plot_hist_H3K27
+plot_hist_H2AUb <- generate_histogram(annotated_peaksets, "H2AK119Ub", 75, palette_paper_3C)
+plot_hist_H2AUb
+
+ggsave("outputs/Fig2F_annotations_H3K27.pdf", plot = plot_hist_H3K27, width = 6, height = 3.5)
+ggsave("outputs/Fig2G_annotations_H2AUb.pdf", plot = plot_hist_H2AUb, width = 6, height = 3.5)
+
+```
+
+## Figure 2.J
+
+MeDseq histogram was obtained using the R code below, taking in input:
+
+-   Data: Med-seq denoised data tables
+
+-   Other input files:
+
+```{r}
+#| label: medseq-histogram
+
+library(dplyr)
+library(ggplot2)
+library(ggh4x)
+
+
+# Upload data table
+df_plot_allx <- read.table("data/medseq_bigwig/20240212_med_seq_barplot_df_allchrX_cpg.tsv", sep = "\t", header = T) %>%
+  mutate(cat = "all_chrX")
+
+df_plot_enh <- read.table(file = "data/medseq_bigwig/20250526_med_seq_barplot_df_enhancers_cpg.tsv", header = T) %>%
+  mutate(cat = "enhancers")
+
+df_plot_tss <- read.table(file = "data/medseq_bigwig/20250526_med_seq_barplot_df_tss_cpg.tsv", header = T) %>%
+  mutate(cat = "tss")
+
+df_plot_geneb <- read.table(file = "data/medseq_bigwig/20250526_med_seq_barplot_df_genebody_cpg.tsv", header = T) %>%
+  mutate(cat = "gene_body")
+
+# merge and reformat columns for plot 
+df_plot_allcat <- rbind(df_plot_allx, df_plot_enh, df_plot_tss, df_plot_geneb) %>%
+  filter(condition == "wt", chr == "chrX")
+df_plot_allcat$cat <- factor(x = df_plot_allcat$cat, levels = c("all_chrX", "enhancers", "tss", "gene_body"))
+df_plot_allcat$cell_type <- factor(x = df_plot_allcat$cell_type, levels = c("PRIMED", "NAIVE", "EXMC", "TSC"), labels = c("Primed", "Naive", "EXMC", "TSC"))
+
+
+# histogram
+color_palette <- c("#659374", "#DBBB65", "#a980c6", "#8AADBB")
+
+
+ggplot(data = df_plot_allcat, aes(x = cell_type, y = count, fill = cell_type)) +
+  # barplot
+  geom_bar(stat = 'summary', show.legend = F, width = 0.5) +
+  scale_fill_manual(values = color_palette) +
+  facet_wrap2(~ cat, ncol = 2, scales = "free_y" ) +
+  # add points
+  geom_point(position = position_dodge(width = 0.9), shape = 16, color = 'black', size = 1, show.legend = F) +
+  # esthetics
+  theme_classic() +
+  theme(axis.text.x = element_text(colour = 'black', angle = 45, vjust = 1, hjust = 1), #rotatio of x labels
+        axis.text.y = element_text(colour = "black")) + # change color of y labels from grey to black
+  scale_y_continuous(expand = c(0,0)) + # to remove the margin space between the bars and the x axis
+  labs(title = "Med-seq", y = "Coverage", x = "", subtitle = "ChrX") -> medseq_barplot
+
+medseq_barplot
+
+
+
+ggsave("outputs/Fig2J_Medseq.pdf", plot = medseq_barplot, width = 6, height = 6)
+
+
+```
+
+## Figure Sup3.A
+
+Correlation heatmap was obtained using the R code below, taking in input:
+
+-   Data: \**regions.bed* files generated by mosdepth (0.3.3) (see pre-processing scripts)
+
+-   Other input files: *sample_sheet_PXGL.csv* and *sample_sheet_TSC-EXMC.csv* (metadata)
+
+```{r}
+#| label: correlation-heatmap
+#| fig-width: 20
+#| fig-height: 10
+
+library(doParallel)
+library(BiocParallel)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(stringr)
+library(sva)
+library(ggpubr)
+library(rstatix)
+library(data.table)
+library(tidyr)
+library(circlize)
+library(ComplexHeatmap)
+
+
+###### functions ######
+
+getMostVariableGenes4<-function(counts,minCount=0.01,plot=TRUE,returnPlot=FALSE){
+  counts<-counts[rowMeans(counts)>minCount,]
+  dispTable<-data.frame(mu=rowMeans(counts),var=apply(counts,1,var),row.names =rownames(counts))
+  dispTable$cv2 <- dispTable$var / dispTable$mu^2
+  sumNullvariance<-sum(dispTable$cv2 <= 0)
+  if(sumNullvariance>0){
+    warning(paste0(sumNullvariance, " have null variance and will be removed"))
+    dispTable<-dispTable[dispTable$cv2 > 0,]
+  }
+  fit<-loess(cv2~mu,data = log10(dispTable[,c("mu","cv2")]))
+  dispTable$residuals<-fit$residuals
+  dispTable$residuals2<-dispTable$residuals^2
+  dispTable$fitted<-10^fit$fitted
+  if(plot){
+    require(ggplot2)
+    require(ggrepel)
+    require(circlize)
+    g<-ggplot(dispTable,aes(x=mu,y=cv2,label=rownames(dispTable),fill=residuals))+
+      geom_point(stroke=1/8,colour = "black",shape=21)+geom_line(aes(y=fitted),color="red",linewidth=1.5)+
+      scale_x_log10()+scale_y_log10()
+    if(returnPlot){
+      return(g)
+    }else{
+      print(g)
+    }
+  }
+  dispTable
+}
+
+qplotDensity<-function(x,printGraph=TRUE,...){
+  require(ggplot2)
+  if(class(x)=="data.frame" | class(x)=="list") x<-unlist(x)
+  if(class(x)=="matrix") x<-as.vector(x)
+  g<-qplot(x,geom="density",...)
+  if(printGraph){
+    print(g)
+  }else{
+    g
+  }
+}
+
+autoGparFontSizeMatrix<-function(n,...){ #Calcule automatiquement la taille de police selon le nombre de colonnes ou lignes (empirique)
+  n=max(n,50)
+  n=min(n,1000)
+  return(gpar(fontsize=1/n*600,...))
+}
+
+cl <- makeCluster(10)  # Use 10 cores
+registerDoParallel(cl)
+
+
+
+
+##### Sample sheet preparation: adding columns with celltype, mark, replicate #####
+sample_annot_tsc_exmc <- read.csv("input_files/sample_sheet_TSC-EXMC.csv", header=T)
+sample_annot_pxgl <- read.csv("input_files/sample_sheet_PXGL.csv", header = F)
+colnames(sample_annot_pxgl) <- colnames(sample_annot_tsc_exmc)
+
+#merging both sample_annot files
+sample_annot <- rbind(sample_annot_tsc_exmc, sample_annot_pxgl)
+
+
+rownames(sample_annot) <- sample_annot$Sample_ID 
+sample_annot$cellType <- unlist(lapply(str_split(sample_annot$Sample_Name,pattern="_"),function(x){x[grep('TSC|EXMC|PXGL',x)]}))
+
+sample_annot$mark <- unlist(lapply(str_split(sample_annot$Sample_Name,pattern="_"),function(x){x[grep('H3K|H2A|IGG',x)]}))
+sample_annot$replicate <- sub('.*_','',sample_annot$Sample_Name)
+sample_annot$target <- sample_annot$mark
+sample_annot$target[sample_annot$target!='IGG'] <- 'target'
+
+
+bed_files <- list.files(path = 'data/bed/', pattern='regions')
+
+bed_list <- NULL
+
+for(bed in bed_files){
+
+  sample <- sub('\\.regions.*','',bed)
+
+  bed_list[[sample]] <- as.data.frame(fread(file = paste0('data/bed/',bed), header = F))
+  colnames(bed_list[[sample]]) <- c('chr','start','end',sample)
+  bed_list[[sample]] <- bed_list[[sample]][!grepl('_',bed_list[[sample]]$chr),] # Filters rows to remove those where the 'chr' column contains underscores ('_') (alt contigs)
+  bed_list[[sample]][,sample] <- (bed_list[[sample]][,sample])/sum((bed_list[[sample]][,sample]))*1e6 # normalization
+
+}
+
+
+bed_list <- bed_list[rownames(sample_annot)]
+
+bed_list_chrX <- lapply(bed_list,function(x){
+  x <- x[x$chr=='chrX',]
+  x$feature <- paste(sep="_",x$chr,x$start,x$end)
+  x <- x[,c(5,4)]
+  return(x)
+})
+
+bed_chrX_df <- do.call('cbind',bed_list_chrX)
+rownames(bed_chrX_df) <- bed_chrX_df[,1]
+bed_chrX_df <- bed_chrX_df[,!grepl("feature",colnames(bed_chrX_df))]
+
+
+sample_annot_target <- sample_annot[!grepl("IGG",sample_annot$mark),]
+
+
+##### Filter out region where it is equal to 0 for every sample ######
+colnames(bed_chrX_df) <- rownames(sample_annot)
+bed_chrX_df_expressed <- bed_chrX_df[, rownames(sample_annot_target)]
+rownames(bed_chrX_df_expressed) <- rownames(bed_chrX_df)
+bed_chrX_df_expressed <- bed_chrX_df_expressed[rowSums(bed_chrX_df_expressed) > 0, ]
+colnames(bed_chrX_df_expressed) <- rownames(sample_annot_target)
+
+
+######## select most variable bins for each histone mark #########
+bed_chrX_df_expressed$rownames <- rownames(bed_chrX_df_expressed)
+bed_chrX_df_expressed_wide <- bed_chrX_df_expressed
+
+# Reorganising the table in long format not wide 
+bed_chrX_df_expressed %>%
+  tidyr::pivot_longer( !rownames , names_to = "sample", values_to = "coverage") -> bed_chrX_df_expressed # reorganise tableau en longueur
+
+# Adding a column with the histone mark using the sample name and the sample sheet.
+bed_chrX_df_expressed$mark <- bed_chrX_df_expressed$sample
+bed_chrX_df_expressed$mark <- unlist(sapply(bed_chrX_df_expressed$mark,function(x){sample_annot[x,'mark']}))
+
+# group by histone mark
+bed_chrX_df_expressed %>%
+  group_by(mark) %>%
+  group_split() -> bed_chrX_expr_mark_list
+
+names(bed_chrX_expr_mark_list) <- unlist(lapply(bed_chrX_expr_mark_list,function(x){unique(x$mark)}))
+
+bed_chrX_expr_mark_list <- lapply(bed_chrX_expr_mark_list,function(x){x[,c('rownames','sample','coverage')]})
+
+rownames(bed_chrX_expr_mark_list) <- bed_chrX_expr_mark_list$rownames
+
+#pivot_wider the dataframe from each histone mark to have the different samples in columns and all the regions in rows
+bed_chrX_expr_mark_list <- lapply(bed_chrX_expr_mark_list,function(x){
+
+  x %>%
+    tidyr::pivot_wider(names_from = sample, values_from = coverage) %>%
+    as.data.frame() -> x
+
+})
+
+# Identify the 500 most variable regions=bins for each mark, returns a list of 3 lists (each length=500)
+var_bins_mark <- lapply(bed_chrX_expr_mark_list,function(x){
+  
+  rownames(x) <- x$rownames
+  x$rownames <- NULL
+  x <- x[rowSums(x)>20,]
+  variableBins <- getMostVariableGenes4(x, plot = FALSE)
+  thres<- 0.25
+  #qplotDensity(variableBins$residuals, printGraph = T)+geom_vline(xintercept = thres)
+  variableBinsNames <- head(rownames(variableBins)[order(variableBins$residuals,decreasing = T)],500)
+  #length(variableBinsNames)
+  return(variableBinsNames)
+  
+})
+
+# merge the list of 3 lists in one big list of 1500 bins name (some are the same, Not unique)
+var_bins <- unlist(var_bins_mark)
+
+# filter the bed_chrX_df_expressed for the selected most var bins, without the mark column
+bed_chrX_df_expressed$mark <- NULL
+bed_chrX_df_expressed_var_bins <- bed_chrX_df_expressed[bed_chrX_df_expressed$rownames %in% var_bins, ]
+
+
+bed_chrX_df_expressed_var_bins %>%
+  tidyr::pivot_wider(names_from = "sample", values_from = "coverage") -> bed_chrX_df_expressed_var_bins
+
+regions <- bed_chrX_df_expressed_var_bins$rownames
+bed_chrX_df_expressed_var_bins$rownames <- NULL
+rownames(bed_chrX_df_expressed_var_bins) <- regions
+colnames(bed_chrX_df_expressed_var_bins) <- sample_annot_target$Sample_Name
+bed_chrX_df_expressed_var_bins <- as.data.frame(bed_chrX_df_expressed_var_bins)
+
+
+
+
+##### Plot  #####
+cor_matrix <- cor(log2(bed_chrX_df_expressed_var_bins+1), method = "spearman" )
+
+colorScale <- colorRamp2(c(-1, 0, 1), c("#00008B", "white", "#FF0000"))
+
+options(repr.plot.width =10, repr.plot.height =30)
+
+hmSpearman <- Heatmap(cor_matrix, 
+                  col = colorScale,clustering_method_columns = "ward.D2",
+                  clustering_method_rows = "ward.D2",
+                  show_row_names = T,
+                  show_column_names = T,
+                  row_names_gp = autoGparFontSizeMatrix(nrow(cor(log2(bed_chrX_df_expressed_var_bins+1)))),
+                  name = "Spearman\ncorrelation",
+                  column_title = "Spearman correlation heatmap\nCUTRUN repressive marks\nchrX")
+
+pdf(file = "outputs/FigS3A_heatmap_spearman.pdf")
+hmSpearman
+dev.off()
+
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```

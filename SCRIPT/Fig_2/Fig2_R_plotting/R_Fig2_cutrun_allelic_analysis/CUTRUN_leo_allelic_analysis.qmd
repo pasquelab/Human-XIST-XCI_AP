@@ -1,0 +1,437 @@
+---
+title: "CUTRUN_Leo_allelic_analysis"
+author: "Jeanne"
+format: 
+  html:
+    embed-resources: true
+    code-fold: true
+    echo: true
+    error: false
+    warning: false
+    editor: visual
+    toc: true
+---
+
+## A. Initialisation
+
+```{r}
+
+# libraries 
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggh4x) # to facet with free y axis-scale in C.2
+library(stringr)
+library(scales)
+library(rtracklayer)
+library(GenomicRanges)
+
+
+# input files
+Phased_SNPs_H9_Emmanuel <- read.table("input_files/h9.wgs.snp.biallelic.PASS.Het.chrX.Phased.Xa.Xi.vcf")
+Phased_SNPs_H9_Emmanuel <- Phased_SNPs_H9_Emmanuel[, c("V1", "V2", "V4", "V5")]
+colnames(Phased_SNPs_H9_Emmanuel) <- c("chr", "pos", "Xa", "Xi")
+
+list_SNPs_CR <- read.table("input_files/info_snp_heterozygous_h9_wgs_sorted_snv_only.vcf.gz", header = F)
+list_SNPs_CR <- list_SNPs_CR[, c("V1", "V2", "V4", "V5")]
+colnames(list_SNPs_CR) <- c("chr", "pos", "X1", "X2")
+
+ascii_qual <- read.table("input_files/ascii_qual.txt", sep = "", header = T)
+ascii_qual$Character[2] <- "\"" # replace the 2nd character that is a " so disappears when uploading, equivalent to quality score of 34
+
+gtf_file <- "/shared/projects/xci/ReferenceGenomes/GRCh38/GTF/Release_110/Homo_sapiens.GRCh38.110.chr.gtf.gz"
+gtf <- import(gtf_file)
+gtf <- as.data.frame(gtf)
+
+# color palette 
+color_palette <- c("#A52F16","#d78727", "#DBBB65", "#9EB27C","#659374", "#8AADBB","#66a9c4", "#4a8ea9", "#036790", "#a980c6")
+breaks_cellTypes <- c('Naive (ChIPseq)','VP-Naive','Naive','Capacitated (ChIPseq)','Primed','TSC', 'clonal TSC', 'H9-NK2 TSC', 'CT27 TSC (CUT&Tag)', 'EXMC')
+```
+
+Input data : mpileup on downsampled bam from snakemake, in `input_data/` folder.
+
+## B. Data tables
+
+### 1. From mpileup to unphased data table
+
+TSC, EXMC, Naive, Primed, VP-Naive, TSCs from Peter, all downsampled, except all IGG that are merged and not downsampled.
+
+```{r}
+# parameters
+min_mapqual <- 50
+chroms <- c("chrX", "chr7")
+
+
+# summarize_bases <- function(char_vec) {# Function to summarize a character vector
+#   # In case of empty char_vec
+#   if (length(char_vec) == 0){
+#     bases <- ""
+#     allele_maj <- NA
+#     count_allele_maj <- 0
+#     allele_min <- NA
+#     count_allele_min <- 0
+#     other_bases_concat <- NA
+#     count_other_bases_concat <- 0
+#   } else {
+#   # For non empty char_vec:
+#   bases <- paste(unlist(char_vec), collapse = "")
+#   ## Count occurrences of each base
+#   base_counts <- table(unlist(char_vec))
+#   ## Sort bases by count in descending order
+#   sorted_bases <- sort(base_counts, decreasing = TRUE)
+#   ## Extract major and minor alleles
+#   allele_maj <- names(sorted_bases)[1]
+#   count_allele_maj <- as.numeric(sorted_bases[1])
+# 
+#   if (length(sorted_bases) > 1) {
+#     allele_min <- names(sorted_bases)[2]
+#     count_allele_min <- as.numeric(sorted_bases[2])
+#   } else {
+#     allele_min <- NA
+#     count_allele_min <- 0
+#   }
+#   # Extract other bases
+#   other_bases <- if (length(sorted_bases) > 2) {
+#     names(sorted_bases)[3:length(sorted_bases)]
+#   } else {
+#     NA
+#   }
+#   count_other_bases <- if (length(sorted_bases) > 2) {
+#     as.numeric(sorted_bases[3:length(sorted_bases)])
+#   } else {
+#     as.numeric(0)
+#   }
+#   # Concatenate other bases and their counts
+#   other_bases_concat <- ifelse(any(is.na(other_bases)), NA, paste(other_bases, collapse = ";"))
+#   count_other_bases_concat <- paste(count_other_bases, collapse = ";")
+#   }
+#   # Return a data frame
+#   return(data.frame(
+#     bases = bases,
+#     allele_maj = allele_maj,
+#     count_allele_maj = count_allele_maj,
+#     allele_min = allele_min,
+#     count_allele_min = count_allele_min,
+#     other_bases = other_bases_concat,
+#     count_other_bases = count_other_bases_concat,
+#     stringsAsFactors = FALSE
+#   ))
+# }
+# 
+# # For ascii quality score conversion
+# ## function 1: from a symbol to a numerical quality score
+# qual_conv <- function(ascii){
+#   return(as.numeric(ascii_qual[ascii_qual$Character == ascii,"ASCII"]))}
+# ## function 2: from a list of symbol to a list of numerical quality scores
+# list_qual_conv <- function(list_qual){
+#   return(as.numeric(lapply(X = list_qual, function(x){qual_conv(x)})))}
+# 
+# 
+# 
+# # Data analysis
+# # uploading mpileup data
+# 
+# mpileup_files <- list.files(path ='data/mpileup/', pattern='.pileup')
+# 
+# 
+# mpileup_list <- NULL
+# 
+# for(table_filename in mpileup_files){
+#   #table_filename <- mpileup_files[1]
+#   print(table_filename)
+#   # read file
+#   mpileup <- read.table(paste0('data/mpileup/', table_filename), header = F)
+#   colnames(mpileup) <- c("chr", "pos", "refA", "depth", "bases", "base_qual", "map_qual")
+# 
+#   # chrom filter to decrease memory usage (++ speed)
+#   mpileup <- mpileup %>%
+#     filter(chr %in% chroms)
+# 
+#   # quality conversion
+#   mq_list <- strsplit(mpileup$map_qual, "") # get mapping quality as a list of list of ascii symbols
+#   mq_converted_list <- lapply(mq_list, list_qual_conv) # convert the list of each position from ascii to number
+#   # get list of lists of bases
+#   bases_list <- strsplit(mpileup$bases, "")
+#   # filter out bases of poor quality
+#   filtered_bases_list <- lapply(1:length(bases_list), function(i){
+#     # for each position's bases list and its corresponding quality scores
+#     bases <- bases_list[[i]]
+#     qual <- mq_converted_list[[i]]
+#     # keep only bases with qual > min_qual
+#     filtered_bases <- bases[qual >= min_mapqual]
+#     return(filtered_bases)
+#   })
+# 
+#   # summarizing counts
+#   ## Replacing symbols by the allele they represent (get rid of strand info)
+#   for (i in seq(length(filtered_bases_list))){
+#     filtered_bases_list[[i]][filtered_bases_list[[i]] %in% c(".",",")] <- mpileup[i,'refA']} # convert . and , to ref allele
+#   filtered_bases_list <- lapply(filtered_bases_list, function(x){toupper(x)}) # all letters in upper case
+#   summary_list <- lapply(filtered_bases_list, summarize_bases)
+#   final_pileup <- do.call(rbind, summary_list)  # Combine the results into a single df
+#   final_pileup <- cbind(mpileup[,c("chr", "pos", "depth")], final_pileup)
+#   # Change to 0 the rows with more than 2 alleles (count_other_alleles != 0)
+#   final_pileup <- final_pileup %>%
+#     mutate(bases = ifelse(count_other_bases != 0, "", bases),
+#            allele_maj = ifelse(count_other_bases != 0, NA, allele_maj),
+#            count_allele_maj = ifelse(count_other_bases != 0, 0, count_allele_maj),
+#            allele_min = ifelse(count_other_bases != 0, NA, allele_min),
+#            count_allele_min = ifelse(count_other_bases != 0, 0, count_allele_min)) %>%
+#     # recount depth after filtering
+#     mutate(effective_depth = ifelse(is.na(bases), 0, nchar(bases)))
+# 
+#   # extract metadata
+#   mark <- strsplit(table_filename, split = "_")[[1]][2]
+#   cell_type <- strsplit(table_filename, split = "_")[[1]][1]
+#   chr <- strsplit(table_filename, split = "_")[[1]][5]
+#   sample <- paste(cell_type, mark, chr, sep = "_")
+#   final_pileup$mark <- mark
+#   final_pileup$cell_type <- cell_type
+#   final_pileup$chr <- chr
+# 
+#   mpileup_list[[sample]] <- final_pileup
+# }
+# all_data_unphased <- bind_rows(mpileup_list)
+
+
+# Save data table unphased
+#write.table(all_data_unphased, file = "outputs/pileup_alldata_unphased_chr7chrX.tsv", quote = F, sep = '\t', col.names = T, row.names = F)
+
+```
+
+Could be improved to take into account deletions "\*", here still counted as allele. Shouldn't have too much impact.
+
+### 2. Phasing & filtering
+
+Phased using Emmanuel RAPseq phased SNP list.
+
+```{r}
+
+# parameters
+min_readdepth <- 4
+
+# Upload data table (counts unphased)
+all_data_X_phased <- read.table("outputs/pileup_alldata_unphased_chr7chrX.tsv", sep = '\t', header = T)
+
+# # functions
+# count_char <- function(character_to_count, char_chain) {
+#   c = 0
+#   char_chain <- strsplit(char_chain, NULL)[[1]]  # separates the char_chain in individual char
+#   for (char in char_chain) {
+#     if (char == character_to_count) {
+#       c = c + 1
+#     }
+#   }
+#   return(c)
+# }
+# 
+# 
+# # Phasing SNPs counts
+# all_data_X_phased <- merge(all_data_unphased, Phased_SNPs_H9_Emmanuel) %>%
+#   select(mark, cell_type, chr, pos, bases, effective_depth, Xa, Xi) 
+# all_data_X_phased$Xa_count <- mapply(count_char, all_data_X_phased$Xa, all_data_X_phased$bases)
+# all_data_X_phased$Xi_count <- mapply(count_char, all_data_X_phased$Xi, all_data_X_phased$bases)
+# all_data_X_phased$other_bases_prop <- (all_data_X_phased$effective_depth -(all_data_X_phased$Xa_count + all_data_X_phased$Xi_count)) / all_data_X_phased$effective_depth
+# 
+# 
+# # filters 
+# all_data_X_phased <- all_data_X_phased %>%
+#   filter(other_bases_prop <= 0.02) %>%
+#   filter(effective_depth >= min_readdepth)
+
+# Save data table phased
+# write.table(all_data_X_phased, file = "outputs/pileup_alldata_phased_chrX.tsv", quote = F, sep = '\t', col.names = T, row.names = F)
+```
+
+## C. Plots
+
+### 1) Boxplot allelic ratio
+
+```{r}
+#| fig-width: 7
+#| fig-height: 6
+
+
+# Upload data table (counts phased)
+all_data_X_phased <- read.table("outputs/pileup_alldata_phased_chrX.tsv", sep = '\t', header = T)
+
+# compute ratio
+all_data_X_phased <- all_data_X_phased %>%
+  mutate(ratio = Xi_count / (Xa_count + Xi_count))
+
+# format cell type and colors for plot
+all_data_X_phased$cell_type <- factor(all_data_X_phased$cell_type, levels = c("H9-d0", "PXGL", "VP-Naive", "EXMC", "TSC", "TSC-A", "H9-TSC", "CT27-TSC", "H9-d10", "Primed"), labels = c("Naive (ChIPseq)", "Naive","VP-Naive", "EXMC", "TSC", "clonal TSC", "H9-NK2 TSC", "CT27 TSC (CUT&Tag)", "Capacitated (ChIPseq)", "Primed"))
+
+
+data_df <- all_data_X_phased
+
+counts_SNPs <- data_df %>%
+  group_by(mark, cell_type) %>%
+  dplyr::summarise(nb_SNP = dplyr::n())
+ 
+
+
+# selected cell-types and marks (in order)
+samples <- c("Primed", "Naive", "EXMC", "TSC")
+marks_order <- c("H3K27me3", "H2AK119Ub", "H3K9me3", "IGG")
+
+
+counts_SNPs_selected <- counts_SNPs %>%
+  filter(cell_type %in% samples)
+
+data_df <- data_df %>%
+  filter(cell_type %in% samples)
+data_df$cell_type <- factor(x = data_df$cell_type, levels = samples)
+data_df$mark <- factor(x = data_df$mark, levels = marks_order)
+
+# boxplot
+  ggplot(data = data_df, aes(x = cell_type, y = ratio, fill = cell_type)) +
+    geom_boxplot(outliers = F) +
+    facet_grid(cols = vars(mark)) +
+    # y-axis ticks
+    scale_y_continuous(breaks = seq(0, 1, by = 0.2)) +
+    # nb of SNP on top
+    geom_text(data = counts_SNPs_selected, aes(x = cell_type, y = 1.1, label = nb_SNP), 
+           vjust = -0.5, size = 3) +
+    # colors
+    scale_fill_manual(values = color_palette, breaks = breaks_cellTypes) +
+    # rotate x-labels + remove caption
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), legend.position = "none") +
+    # labels
+    labs(y = "Ratio Xi/Xtot", x = "", title = paste("Allelic Ratio of each SNP with >= ", min_readdepth, "reads. Phased."))
+  
+
+#ggsave(filename = "outputs/boxplot_cutrun_allelic_ratio_phased.pdf", plot = last_plot(), height = 4.5, width = 8)
+```
+
+### 2) Allelic profile plot
+
+#### a. As a ggplot2 fig
+
+In red reads from "Xa" (in CR primed), and blue reads from "Xi". No additional normalization than downsampling.
+
+```{r}
+#| fig-width: 9
+#| fig-height: 7
+
+# Upload data table (counts phased)
+all_data_X_phased <- read.table("outputs/pileup_alldata_phased_chrX.tsv", sep = '\t', header = T)
+
+
+# format cell type and colors for plot
+all_data_X_phased$cell_type <- factor(all_data_X_phased$cell_type, levels = c("H9-d0", "PXGL", "VP-Naive", "EXMC", "TSC", "TSC-A", "H9-TSC", "CT27-TSC", "H9-d10", "Primed"), labels = c("Naive (ChIPseq)", "Naive","VP-Naive", "EXMC", "TSC", "clonal TSC", "H9-NK2 TSC", "CT27 TSC (CUT&Tag)", "Capacitated (ChIPseq)", "Primed"))
+
+# select cell_types to plot
+selected_cell_types <- c("Primed", "Naive", "EXMC", "TSC", "clonal TSC")
+
+
+
+# plot function (NB: enter marks as a vector)
+make_profile_plot <- function(marks){
+  # select data 
+  data_df <- all_data_X_phased[all_data_X_phased$mark %in% marks & all_data_X_phased$cell_type %in% selected_cell_types,]
+
+  # cell_type as factor to control plot order 
+  data_df$cell_type <- factor(x = data_df$cell_type, levels = selected_cell_types, labels = selected_cell_types)
+
+  # plot 
+  data_df %>%
+    # histograms facetted
+    ggplot() +
+    facet_grid2(rows = vars(cell_type), cols= vars(mark), scales = "free_y", independent = "y") +
+    geom_col(aes(x = pos, y = Xa_count), fill = "red", color = "red") +
+    geom_col(aes(x = pos, y = - Xi_count), fill = "blue", color = "blue") +
+    # x-axis coordinates easy to read by changing unit
+    scale_x_continuous(labels = unit_format(unit = "M", scale = 1e-6)) +
+    # labels and theme
+    labs(y = "Counts per SNP", x = "", title = "CUT&RUN allelic profile on chrX", subtitle = paste("On merged replicates. SNP with >= ", min_readdepth, "reads")) +
+    theme_bw() +
+    theme(strip.text.y = element_text(size = 6, angle = -45)) # cell types at 45?? to fit
+}
+
+
+allmarks_plot <- make_profile_plot(c("H3K27me3", "H2AK119Ub", "H3K9me3", "IGG"))
+allmarks_plot
+
+# ggsave(filename = paste0("outputs/chrX_allelic_cutrun_profiles_allmarks_readthreshold_", min_readdepth ,"_perSNP_freeyscale.pdf"), plot = allmarks_plot, width = 10, height = 7)
+```
+
+Would make sense to remove the filter on nb of reads per SNP here, I think it only makes sense when computing ratios. Shouldn't drastically change results.
+
+#### b. Generate bigwig files for ucsc genome browser
+
+```{r}
+
+# Upload data table (counts phased)
+all_data_X_phased <- read.table("outputs/pileup_alldata_phased_chrX.tsv", sep = '\t', header = T)
+
+
+# filter data to keep only selected cell types and marks
+selected_cell_types <- c("PXGL", "EXMC", "TSC", "TSC-A")
+selected_marks <- c("H3K27me3", "H2AK119Ub")
+data_df <- all_data_X_phased[all_data_X_phased$mark %in% selected_marks & all_data_X_phased$cell_type %in% selected_cell_types,]
+
+
+
+data_df <- data_df %>%
+  # keep only interesting columns for bed 
+  select(mark, cell_type, chr, pos, Xa_count, Xi_count) %>%
+  # pivot longer to separate Xi and Xa tracks in 2 tables for each sample
+  pivot_longer(
+    cols = c(Xa_count, Xi_count),
+    names_to = "allele",
+    values_to = "count"
+  ) %>%
+  mutate(
+    allele = ifelse(allele == "Xa_count", "Xa", "Xi")
+  )
+
+# split in a list of subtables for each sample
+subtables <- data_df %>%
+  group_by(mark, cell_type, allele) %>%
+  group_split()
+
+# rename subtables
+names(subtables) <- data_df %>%
+  group_by(mark, cell_type, allele) %>%
+  group_keys() %>%
+  unite("name", mark, cell_type, allele, sep = "_") %>%
+  pull(name)
+
+# Example of access 
+# head(subtables[["H3K27me3_TSC_Xa"]])
+
+
+# transform subtables into bigwig files 
+for (name in names(subtables)) {
+  df <- subtables[[name]]
+  # create GRange object
+  gr <- GRanges(
+    seqnames = df$chr,
+    ranges = IRanges(start = df$pos, end = df$pos),
+    score = df$count
+  )
+  seqlengths(gr) <- c(chrX = 156040895)
+  # export as bigwig
+  export.bw(gr, paste0("outputs/allelic_bigwigs_for_ucsc/",name , ".bw"))
+}
+
+
+```
+
+Compute read sum per sample to calculate proportions of alleles
+
+```{r}
+
+# read proportion 
+prop_df <- data_df %>%
+  group_by(mark, cell_type, allele) %>%
+  summarise(sum_count = sum(count))
+prop_df
+```
+
+## Session info
+
+```{r}
+sessionInfo()
+```

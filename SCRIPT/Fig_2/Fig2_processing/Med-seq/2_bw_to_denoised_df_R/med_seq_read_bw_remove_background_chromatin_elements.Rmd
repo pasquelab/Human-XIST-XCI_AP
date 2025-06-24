@@ -1,0 +1,1528 @@
+---
+title: "Med-seq bigwig background noise filtering"
+author: "Gael Castel"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+  toc: yes
+number_sections: true
+toc_depth: 3
+toc_float: true
+code_folding: hide
+---
+
+<!-- Gene categories: replace "constant" and "up" with "unsensitive" and "sensitive" to XIST -->
+
+```{r setup, include=T, echo=T, warning=F, message=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r load libraries, include=T, echo=T, warning=F, message=FALSE}
+
+source("https://gitlab.univ-nantes.fr/E114424Z/veneR/-/raw/master/loadFun.R")
+
+# .libPaths(c("/shared/projects/xci/r_packages/","/shared/software/conda/envs/r-4.1.1/lib/R/library/"))
+# ALSO: make it expandable/deployable to IPOP-UP cluster
+
+# NB: for reproducibility, prefer: if requires(package) -> BiocManager::install(package) -> library(package)
+
+# BiocManager::install('EnhancedVolcano')
+library(GenomicRanges)
+library(plyranges)
+library(monocle3)
+library(SingleCellExperiment)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(Matrix)
+library(stringr)
+library(BiocManager)
+library(devtools)
+library(pcaMethods)
+library(data.table)
+library(parallel)
+library(DESeq2)
+library(ggpubr)
+library(tidyverse)
+library(EnhancedVolcano)
+library(rstatix)
+library(biomaRt)
+library(gtools)
+library(parallel)
+library(statebins)
+library(sva)
+library(wesanderson)
+library(kableExtra)
+library(ScaledMatrix)
+library(DelayedArray)
+library(BiocSingular)
+library(uwot)
+library(speedglm)
+library(plotly)
+library(doParallel)
+library(circlize)
+library(ComplexHeatmap)
+library(WGCNA)
+library(waveslim)
+library(wavelets)
+# library(rtracklayer)
+
+timeNow<-function(x=NULL, y=NULL, m=NULL, d=NULL , h=NULL, min=NULL,ymd_h_m=NULL){x=date();
+date=unlist(str_split(pattern = "-", Sys.Date()))
+time=unlist(str_split(pattern = ":",unlist(str_split(pattern=" ",Sys.time()))[2]))
+return(paste(c(date,time), collapse = "_"))
+}
+
+
+sample_annot=fastRead("input_files/sample_annot_med_seq_human.txt", header=T, sep="\t",as.matrix = F)
+sample_annot$sample_id=rn(sample_annot)
+sample_annot$cell_type_condition=paste(sep="_",sample_annot$cell_type,sample_annot$condition)
+
+
+
+cpg_bed =  read.table("input_files/cpgIslandExt.hg38.bed")
+cpg_bed=cpg_bed[cpg_bed$V1%in%c(paste0("chr",c(seq(22),"X"))),]
+# cpg_bed_chr <- 
+#   lapply(split(cpg_bed, cpg_bed$V1), function(i){
+#     GRanges(seqnames = i$V1,
+#             ranges = IRanges(start = i$V2,
+#                              end = i$V3,
+#                              names = i$V4))
+#   })
+
+cpg_bed <- GRanges(seqnames = cpg_bed$V1,
+            ranges = IRanges(start = cpg_bed$V2,
+                             end = cpg_bed$V3),length=cpg_bed$V5,sites=cpg_bed$V6)
+
+
+bw=as.list(list.files(path = "../1_fq_to_bw/bigwig/", pattern = "_no_norm_no_dedduped.bw"))
+
+# findOverlaps cpg_bed and prom/enhancer/repetitive_elements
+
+bw_list=sapply(bw, function(x) {read_bigwig(paste0("../1_fq_to_bw/bigwig/",x),overlap_ranges=cpg_bed)})
+names(bw_list)=sub("_no_norm.*","",unlist(bw))
+bw_list=bw_list[rn(sample_annot)]
+
+bw_list_df=lapply(bw_list,function(x){
+  
+  x=as.data.frame(x)
+  x=x[x$score>0,]
+  x=x[,c("seqnames","start","end","score")]
+  rownames_x=paste(sep = "_",x$seqnames,x$start,x$end)
+  x=as.data.frame(x[,'score'])
+  x$rownames_x=rownames_x
+  return(x)
+
+})
+
+bw_list_df %>% reduce(full_join, by = "rownames_x") -> bw_df
+
+rownames(bw_df)=bw_df$rownames_x
+bw_df$rownames_x=NULL
+
+bw_df[is.na(bw_df)]<-0
+
+colnames(bw_df)=names(bw_list_df)
+
+bw_df=bw_df[,rn(sample_annot)]
+
+mra_samples=apply(bw_df,2,function(x){
+  dwt=waveslim::mra(x,J = 8, method = "modwt",boundary = "reflection")
+  dwt$D1[dwt$D1<0]<-0
+  dwt$D2[dwt$D2<0]<-0
+  dwt$D3[dwt$D3<0]<-0
+  dwt$D4[dwt$D4<0]<-0
+  dwt$D5[dwt$D5<0]<-0
+  dwt$D6[dwt$D6<0]<-0
+  dwt$D7[dwt$D7<0]<-0
+  dwt$D8[dwt$D8<0]<-0
+  
+  names(dwt$D1)=rn(bw_df)
+  names(dwt$D2)=rn(bw_df)
+  names(dwt$D3)=rn(bw_df)
+  names(dwt$D4)=rn(bw_df)
+  names(dwt$D5)=rn(bw_df)
+  names(dwt$D6)=rn(bw_df)
+  names(dwt$D7)=rn(bw_df)
+  names(dwt$D8)=rn(bw_df)
+
+  
+  return(dwt)
+})
+
+rn(sample_annot)
+
+head(mra_samples[["naive-dox-clone1"]]$D1[order(mra_samples[["naive-dox-clone1"]]$D1,decreasing = T)])
+head(mra_samples[["naive-dox-clone1"]]$D8[order(mra_samples[["naive-dox-clone1"]]$D8,decreasing = T)]
+)
+
+grep('chr10_3067601_3067620',names(mra_samples[["naive-dox-clone1"]]$D1))
+
+subset_naive_dox_clone1=mra_samples[["naive-dox-clone1"]]$D1[grepl("chr10",names(mra_samples[["naive-dox-clone1"]]$D1))]
+
+bw_df_corrected=log2(bw_df+1)
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-dox-clone1'[bw_df_corrected$'naive-dox-clone1'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-dox-clone2'[bw_df_corrected$'naive-dox-clone2'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 5)
+
+bw_df_corrected$'naive-dox-clone3'[bw_df_corrected$'naive-dox-clone3'<5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-WT-dox-clone4'[bw_df_corrected$'naive-WT-dox-clone4'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'naive-WT-dox-clone5'[bw_df_corrected$'naive-WT-dox-clone5'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-untreated-clone1'[bw_df_corrected$'naive-untreated-clone1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 5.2)
+
+bw_df_corrected$'naive-untreated-clone2'[bw_df_corrected$'naive-untreated-clone2'<5.2]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.8)
+
+bw_df_corrected$'naive-untreated-clone3'[bw_df_corrected$'naive-untreated-clone3'<3.8]=0
+
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone4'[bw_df_corrected$'naive-WT-untreated-clone4'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone5'[bw_df_corrected$'naive-WT-untreated-clone5'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Naive-WT-rep1'[bw_df_corrected$'Naive-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.3)
+
+bw_df_corrected$'Naive-WT-rep2'[bw_df_corrected$'Naive-WT-rep2'<4.3]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Primed-WT-rep1'[bw_df_corrected$'Primed-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'Primed-WT-rep2'[bw_df_corrected$'Primed-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'TSC-WT-rep1'[bw_df_corrected$'TSC-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'TSC-WT-rep2'[bw_df_corrected$'TSC-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'EXMC-WT-rep1'[bw_df_corrected$'EXMC-WT-rep1'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'EXMC-WT-rep2'[bw_df_corrected$'EXMC-WT-rep2'<4]=0
+
+```
+
+Confirm peak threshold on regions covered in naive untreated
+
+```{r}
+head(mra_samples[["naive-untreated-clone1"]]$D1[order(mra_samples[["naive-untreated-clone1"]]$D1,decreasing = T)])
+grep('chr8_144125881_144125900',names(mra_samples[["naive-untreated-clone1"]]$D1))
+
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[640000:650000],y=log2(bw_df[,"naive-untreated-clone1"][640000:650000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-untreated-clone1'[bw_df_corrected$'naive-untreated-clone1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[640000:650000],y=log2(bw_df[,"naive-untreated-clone2"][640000:650000]+1)))+
+  geom_hline(yintercept = 5.2)
+
+```
+
+```{r}
+
+head(mra_samples[["TSC-WT-rep2"]]$D1[order(mra_samples[["TSC-WT-rep2"]]$D1,decreasing = T)])
+grep('chr20_26209601_26209620',names(mra_samples[["TSC-WT-rep2"]]$D1))
+
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[88000:90000],y=log2(bw_df[,"TSC-WT-rep2"][88000:90000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'TSC-WT-rep2'[bw_df_corrected$'TSC-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+
+colSums(bw_df_corrected)
+
+```
+
+```{r}
+bw_df_corrected$chr=sub("_.*","",rn(bw_df_corrected))
+
+```
+
+```{r}
+
+bw_df_corrected%>%
+  group_by(chr) %>%
+  summarise(across(everything(), list(sum))) -> bw_df_corrected_sum
+
+colnames(bw_df_corrected_sum)=sub("_1.*","",colnames(bw_df_corrected_sum))
+
+```
+
+```{r, include=T}
+
+bw_df_corrected_sum %>%
+  pivot_longer(!c(chr), names_to = "sample", values_to = "count") -> bw_df_corrected_sum_longer
+
+bw_df_corrected_sum_longer$cell_type=rep(rep(sample_annot$cell_type,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$condition=rep(rep(sample_annot$condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=rep(rep(sample_annot$cell_type_condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=factor(bw_df_corrected_sum_longer$cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))
+
+```
+
+```{r}
+bw_df_corrected_sum_longer %>%
+  group_by(chr,cell_type_condition) %>%
+  # summarise(count=mean(count)) %>%
+  mutate(mean=mean(count),sd=sd(count),chr=factor(chr,levels=paste0("chr",c(seq(22),"X"))),cell_type_condition=factor(cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))) %>%
+  as.data.frame() -> df_plot
+
+# Jeanne : downloaded the data table to replot it for Panda, Carrillo manuscript
+write.table(df_plot, file = "outputs/med_seq_barplot_df_allchrX_cpg.tsv", sep = "\t")
+
+```
+
+# CHROMATIN ELEMENTS
+
+```{r}
+
+enhancer_bed =  read.table("input_files/hg38_enhancer.bed")
+enhancer_bed=enhancer_bed[enhancer_bed$V1%in%c(paste0("chr",c(seq(22),"X"))),]
+
+enhancer_bed <- GRanges(seqnames = enhancer_bed$V1,
+            ranges = IRanges(start = enhancer_bed$V2,
+                             end = enhancer_bed$V3))
+
+
+enhancer_cpg=enhancer_bed[countOverlaps(enhancer_bed, cpg_bed, type="any")>0]
+
+bw=as.list(list.files(path = "input_files/bigwig/", pattern = "_no_norm_no_dedduped.bw"))
+
+# findOverlaps cpg_bed and prom/enhancer/repetitive_elements
+
+bw_list=sapply(bw, function(x) {read_bigwig(paste0("../1_fq_to_bw/bigwig/",x),overlap_ranges=enhancer_cpg)})
+names(bw_list)=sub("_no_norm.*","",unlist(bw))
+bw_list=bw_list[rn(sample_annot)]
+
+bw_list_df=lapply(bw_list,function(x){
+  
+  x=as.data.frame(x)
+  x=x[x$score>0,]
+  x=x[,c("seqnames","start","end","score")]
+  rownames_x=paste(sep = "_",x$seqnames,x$start,x$end)
+  x=as.data.frame(x[,'score'])
+  x$rownames_x=rownames_x
+  return(x)
+
+})
+
+bw_list_df %>% reduce(full_join, by = "rownames_x") -> bw_df
+
+rownames(bw_df)=bw_df$rownames_x
+bw_df$rownames_x=NULL
+
+bw_df[is.na(bw_df)]<-0
+
+colnames(bw_df)=names(bw_list_df)
+
+bw_df=bw_df[,rn(sample_annot)]
+
+bw_df_corrected=log2(bw_df+1)
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-dox-clone1'[bw_df_corrected$'naive-dox-clone1'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-dox-clone2'[bw_df_corrected$'naive-dox-clone2'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 5)
+
+bw_df_corrected$'naive-dox-clone3'[bw_df_corrected$'naive-dox-clone3'<5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-WT-dox-clone4'[bw_df_corrected$'naive-WT-dox-clone4'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'naive-WT-dox-clone5'[bw_df_corrected$'naive-WT-dox-clone5'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-untreated-clone1'[bw_df_corrected$'naive-untreated-clone1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 5.2)
+
+bw_df_corrected$'naive-untreated-clone2'[bw_df_corrected$'naive-untreated-clone2'<5.2]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.8)
+
+bw_df_corrected$'naive-untreated-clone3'[bw_df_corrected$'naive-untreated-clone3'<3.8]=0
+
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone4'[bw_df_corrected$'naive-WT-untreated-clone4'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone5'[bw_df_corrected$'naive-WT-untreated-clone5'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Naive-WT-rep1'[bw_df_corrected$'Naive-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.3)
+
+bw_df_corrected$'Naive-WT-rep2'[bw_df_corrected$'Naive-WT-rep2'<4.3]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Primed-WT-rep1'[bw_df_corrected$'Primed-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'Primed-WT-rep2'[bw_df_corrected$'Primed-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'TSC-WT-rep1'[bw_df_corrected$'TSC-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'TSC-WT-rep2'[bw_df_corrected$'TSC-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'EXMC-WT-rep1'[bw_df_corrected$'EXMC-WT-rep1'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'EXMC-WT-rep2'[bw_df_corrected$'EXMC-WT-rep2'<4]=0
+
+```
+
+```{r}
+# variableGenes<-getMostVariableGenes4(as.matrix(mra_samples),minCount = 1)
+# thres<- 0.2
+# qplotDensity(variableGenes$residuals)+geom_vline(xintercept = thres)
+# variableGenesNames<-rn(variableGenes)[variableGenes$residuals>thres]
+# len(variableGenesNames)
+# 
+# mra_most_var=log2(mra_samples[variableGenesNames,]+1)
+
+# scale(bw_df_corrected[rowSums(bw_df_corrected)>0,])
+# 
+colSums(bw_df_corrected)
+# 
+# Heatmap(cor(bw_df_corrected))
+```
+
+```{r}
+bw_df_corrected$chr=sub("_.*","",rn(bw_df_corrected))
+
+```
+
+```{r}
+
+bw_df_corrected%>%
+  group_by(chr) %>%
+  summarise(across(everything(), list(sum))) -> bw_df_corrected_sum
+
+colnames(bw_df_corrected_sum)=sub("_1.*","",colnames(bw_df_corrected_sum))
+
+```
+
+```{r, include=T}
+
+bw_df_corrected_sum %>%
+  pivot_longer(!c(chr), names_to = "sample", values_to = "count") -> bw_df_corrected_sum_longer
+
+bw_df_corrected_sum_longer$cell_type=rep(rep(sample_annot$cell_type,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$condition=rep(rep(sample_annot$condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=rep(rep(sample_annot$cell_type_condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=factor(bw_df_corrected_sum_longer$cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))
+
+```
+
+```{r}
+bw_df_corrected_sum_longer %>%
+  group_by(chr,cell_type_condition) %>%
+  # summarise(count=mean(count)) %>%
+  mutate(mean=mean(count),sd=sd(count),chr=factor(chr,levels=paste0("chr",c(seq(22),"X"))),cell_type_condition=factor(cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))) %>%
+  as.data.frame() -> df_plot
+
+# downloaded the data table to replot it for Panda, Carrillo manuscript
+write.table(df_plot, file = "outputs/med_seq_barplot_df_enhancers_cpg.tsv", sep = '\t', col.names = T, row.names = F, quote = F)
+
+```
+
+# REPETITIVE
+
+```{r}
+
+repetitive_bed =  read.table("input_files/hg38_repetitive.bed")
+repetitive_bed=repetitive_bed[repetitive_bed$V1%in%c(paste0("chr",c(seq(22),"X"))),]
+
+repetitive_bed <- GRanges(seqnames = repetitive_bed$V1,
+            ranges = IRanges(start = repetitive_bed$V2,
+                             end = repetitive_bed$V3))
+
+
+repetitive_cpg=repetitive_bed[countOverlaps(repetitive_bed, cpg_bed, type="any")>0]
+
+bw=as.list(list.files(path = "../1_fq_to_bw/bigwig/", pattern = "_no_norm_no_dedduped.bw"))
+
+# findOverlaps cpg_bed and prom/repetitive/repetitive_elements
+
+bw_list=sapply(bw, function(x) {read_bigwig(paste0("../1_fq_to_bw/bigwig/",x),overlap_ranges=repetitive_cpg)})
+names(bw_list)=sub("_no_norm.*","",unlist(bw))
+bw_list=bw_list[rn(sample_annot)]
+
+bw_list_df=lapply(bw_list,function(x){
+  
+  x=as.data.frame(x)
+  x=x[x$score>0,]
+  x=x[,c("seqnames","start","end","score")]
+  rownames_x=paste(sep = "_",x$seqnames,x$start,x$end)
+  x=as.data.frame(x[,'score'])
+  x$rownames_x=rownames_x
+  return(x)
+
+})
+
+bw_list_df %>% reduce(full_join, by = "rownames_x") -> bw_df
+
+rownames(bw_df)=bw_df$rownames_x
+bw_df$rownames_x=NULL
+
+bw_df[is.na(bw_df)]<-0
+
+colnames(bw_df)=names(bw_list_df)
+
+bw_df=bw_df[,rn(sample_annot)]
+
+bw_df_corrected=log2(bw_df+1)
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-dox-clone1'[bw_df_corrected$'naive-dox-clone1'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-dox-clone2'[bw_df_corrected$'naive-dox-clone2'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 5)
+
+bw_df_corrected$'naive-dox-clone3'[bw_df_corrected$'naive-dox-clone3'<5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-WT-dox-clone4'[bw_df_corrected$'naive-WT-dox-clone4'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'naive-WT-dox-clone5'[bw_df_corrected$'naive-WT-dox-clone5'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-untreated-clone1'[bw_df_corrected$'naive-untreated-clone1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 5.2)
+
+bw_df_corrected$'naive-untreated-clone2'[bw_df_corrected$'naive-untreated-clone2'<5.2]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.8)
+
+bw_df_corrected$'naive-untreated-clone3'[bw_df_corrected$'naive-untreated-clone3'<3.8]=0
+
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone4'[bw_df_corrected$'naive-WT-untreated-clone4'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone5'[bw_df_corrected$'naive-WT-untreated-clone5'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Naive-WT-rep1'[bw_df_corrected$'Naive-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.3)
+
+bw_df_corrected$'Naive-WT-rep2'[bw_df_corrected$'Naive-WT-rep2'<4.3]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Primed-WT-rep1'[bw_df_corrected$'Primed-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'Primed-WT-rep2'[bw_df_corrected$'Primed-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'TSC-WT-rep1'[bw_df_corrected$'TSC-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'TSC-WT-rep2'[bw_df_corrected$'TSC-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'EXMC-WT-rep1'[bw_df_corrected$'EXMC-WT-rep1'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'EXMC-WT-rep2'[bw_df_corrected$'EXMC-WT-rep2'<4]=0
+
+```
+
+```{r}
+# variableGenes<-getMostVariableGenes4(as.matrix(mra_samples),minCount = 1)
+# thres<- 0.2
+# qplotDensity(variableGenes$residuals)+geom_vline(xintercept = thres)
+# variableGenesNames<-rn(variableGenes)[variableGenes$residuals>thres]
+# len(variableGenesNames)
+# 
+# mra_most_var=log2(mra_samples[variableGenesNames,]+1)
+
+# scale(bw_df_corrected[rowSums(bw_df_corrected)>0,])
+# 
+colSums(bw_df_corrected)
+# 
+# Heatmap(cor(bw_df_corrected))
+```
+
+```{r}
+bw_df_corrected$chr=sub("_.*","",rn(bw_df_corrected))
+
+```
+
+```{r}
+
+bw_df_corrected%>%
+  group_by(chr) %>%
+  summarise(across(everything(), list(sum))) -> bw_df_corrected_sum
+
+colnames(bw_df_corrected_sum)=sub("_1.*","",colnames(bw_df_corrected_sum))
+
+```
+
+```{r, include=T}
+
+bw_df_corrected_sum %>%
+  pivot_longer(!c(chr), names_to = "sample", values_to = "count") -> bw_df_corrected_sum_longer
+
+bw_df_corrected_sum_longer$cell_type=rep(rep(sample_annot$cell_type,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$condition=rep(rep(sample_annot$condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=rep(rep(sample_annot$cell_type_condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=factor(bw_df_corrected_sum_longer$cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))
+
+```
+
+```{r}
+bw_df_corrected_sum_longer %>%
+  group_by(chr,cell_type_condition) %>%
+  # summarise(count=mean(count)) %>%
+  mutate(mean=mean(count),sd=sd(count),chr=factor(chr,levels=paste0("chr",c(seq(22),"X"))),cell_type_condition=factor(cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))) %>%
+  as.data.frame() -> df_plot
+
+ggplot(data=df_plot)+
+  geom_bar(aes(x=cell_type_condition,y=count,fill=cell_type_condition),stat = 'summary')+
+  geom_point(aes(x=cell_type_condition,y=count))+
+  geom_errorbar(aes(x=cell_type_condition,ymin=mean-sd, ymax=mean+sd), position="dodge") +
+  # stat_compare_means(vjust=0.2, label="p.signif",size=3, method="t.test", paired=F)  +
+  # stat_compare_means(vjust=1, label="p.format",size=3, method="t.test", paired=F)  + 
+  ggtitle('MED-Seq downsampled peak threshold') +
+  ylab("Mean coverage")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  facet_wrap(~chr, scales="free") -> p
+
+# res.stat_pos <- bw_df_corrected_sum_longer %>%
+#   group_by(chr) %>%
+#   t_test(data = ., count ~ cell_type_condition,paired = F) %>% 
+#   adjust_pvalue(method = "bonferroni") %>%
+#   add_significance("p.adj") %>%
+#   add_significance("p") %>%
+#   ungroup()%>%
+#   add_xy_position(x = "cell_type_condition", fun = "mean",formula = count ~ cell_type_condition,step.increase = 0.05,dodge = 0.9)
+# 
+# print(p + 
+#         stat_pvalue_manual(
+#           res.stat_pos, label = "p.adj.signif", remove.bracket=T,y.position=res.stat_pos$y.position+0.05
+#         )
+#       
+# )
+p
+
+ggsave("outputs/med_seq_barplot_downsampled_peak_threshold_repetitives_cpg.pdf",width = 10,height = 20)
+
+```
+
+# TSS/Gene Body
+
+```{r}
+gtf=read.table("input_files/Homo_sapiens.GRCh38.90.gtf", header=F, sep="\t")
+colnames(gtf)=c('chrom','source','feature','start',
+                'end',
+                'score',
+                'strand',
+                'frame',
+                'attribute')
+
+gtf$chrom=paste0("chr",gtf$chrom)
+
+gtf=gtf[gtf$chrom %in% c(paste0("chr",c(seq(22),"X"))),]
+
+gtf %>%
+  filter(feature=="transcript") -> gtf
+
+gtf$tss_low_bound=apply(gtf,1,function(x){ifelse(x['strand']=="+",as.numeric(x['start'])-1e3,as.numeric(x['end']))})
+gtf$tss_high_bound=apply(gtf,1,function(x){ifelse(x['strand']=="+",as.numeric(x['start']),as.numeric(x['end'])+1e3)})
+
+
+```
+
+```{r}
+
+tss_bed =  gtf[,c("chrom","tss_low_bound","tss_high_bound")]
+colnames(tss_bed)=c("V1","V2","V3")
+
+tss_bed <- GRanges(seqnames = tss_bed$V1,
+            ranges = IRanges(start = tss_bed$V2,
+                             end = tss_bed$V3))
+
+
+tss_cpg=tss_bed[countOverlaps(tss_bed, cpg_bed, type="any")>0]
+
+bw=as.list(list.files(path = "../1_fq_to_bw/bigwig/", pattern = "_no_norm_no_dedduped.bw"))
+
+# findOverlaps cpg_bed and prom/tss/tss_elements
+
+bw_list=sapply(bw, function(x) {read_bigwig(paste0("../1_fq_to_bw/bigwig/",x),overlap_ranges=tss_cpg)})
+names(bw_list)=sub("_no_norm.*","",unlist(bw))
+bw_list=bw_list[rn(sample_annot)]
+
+bw_list_df=lapply(bw_list,function(x){
+  
+  x=as.data.frame(x)
+  x=x[x$score>0,]
+  x=x[,c("seqnames","start","end","score")]
+  rownames_x=paste(sep = "_",x$seqnames,x$start,x$end)
+  x=as.data.frame(x[,'score'])
+  x$rownames_x=rownames_x
+  return(x)
+
+})
+
+bw_list_df %>% reduce(full_join, by = "rownames_x") -> bw_df
+
+rownames(bw_df)=bw_df$rownames_x
+bw_df$rownames_x=NULL
+
+bw_df[is.na(bw_df)]<-0
+
+colnames(bw_df)=names(bw_list_df)
+
+bw_df=bw_df[,rn(sample_annot)]
+
+bw_df_corrected=log2(bw_df+1)
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-dox-clone1'[bw_df_corrected$'naive-dox-clone1'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-dox-clone2'[bw_df_corrected$'naive-dox-clone2'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 5)
+
+bw_df_corrected$'naive-dox-clone3'[bw_df_corrected$'naive-dox-clone3'<5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-WT-dox-clone4'[bw_df_corrected$'naive-WT-dox-clone4'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'naive-WT-dox-clone5'[bw_df_corrected$'naive-WT-dox-clone5'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-untreated-clone1'[bw_df_corrected$'naive-untreated-clone1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 5.2)
+
+bw_df_corrected$'naive-untreated-clone2'[bw_df_corrected$'naive-untreated-clone2'<5.2]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.8)
+
+bw_df_corrected$'naive-untreated-clone3'[bw_df_corrected$'naive-untreated-clone3'<3.8]=0
+
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone4'[bw_df_corrected$'naive-WT-untreated-clone4'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone5'[bw_df_corrected$'naive-WT-untreated-clone5'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Naive-WT-rep1'[bw_df_corrected$'Naive-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.3)
+
+bw_df_corrected$'Naive-WT-rep2'[bw_df_corrected$'Naive-WT-rep2'<4.3]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Primed-WT-rep1'[bw_df_corrected$'Primed-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'Primed-WT-rep2'[bw_df_corrected$'Primed-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'TSC-WT-rep1'[bw_df_corrected$'TSC-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'TSC-WT-rep2'[bw_df_corrected$'TSC-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'EXMC-WT-rep1'[bw_df_corrected$'EXMC-WT-rep1'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'EXMC-WT-rep2'[bw_df_corrected$'EXMC-WT-rep2'<4]=0
+
+```
+
+```{r}
+# variableGenes<-getMostVariableGenes4(as.matrix(mra_samples),minCount = 1)
+# thres<- 0.2
+# qplotDensity(variableGenes$residuals)+geom_vline(xintercept = thres)
+# variableGenesNames<-rn(variableGenes)[variableGenes$residuals>thres]
+# len(variableGenesNames)
+# 
+# mra_most_var=log2(mra_samples[variableGenesNames,]+1)
+
+# scale(bw_df_corrected[rowSums(bw_df_corrected)>0,])
+# 
+colSums(bw_df_corrected)
+# 
+# Heatmap(cor(bw_df_corrected))
+```
+
+```{r}
+bw_df_corrected$chr=sub("_.*","",rn(bw_df_corrected))
+
+```
+
+```{r}
+
+bw_df_corrected%>%
+  group_by(chr) %>%
+  summarise(across(everything(), list(sum))) -> bw_df_corrected_sum
+
+colnames(bw_df_corrected_sum)=sub("_1.*","",colnames(bw_df_corrected_sum))
+
+```
+
+```{r, include=T}
+
+bw_df_corrected_sum %>%
+  pivot_longer(!c(chr), names_to = "sample", values_to = "count") -> bw_df_corrected_sum_longer
+
+bw_df_corrected_sum_longer$cell_type=rep(rep(sample_annot$cell_type,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$condition=rep(rep(sample_annot$condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=rep(rep(sample_annot$cell_type_condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=factor(bw_df_corrected_sum_longer$cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))
+
+```
+
+```{r}
+bw_df_corrected_sum_longer %>%
+  group_by(chr,cell_type_condition) %>%
+  # summarise(count=mean(count)) %>%
+  mutate(mean=mean(count),sd=sd(count),chr=factor(chr,levels=paste0("chr",c(seq(22),"X"))),cell_type_condition=factor(cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))) %>%
+  as.data.frame() -> df_plot
+
+# downloaded the data table to replot it for Panda, Carrillo manuscript
+write.table(df_plot, file = "outputs/med_seq_barplot_df_tss_cpg.tsv", sep = '\t', col.names = T, row.names = F, quote = F)
+
+
+```
+
+# GENE BODY
+
+```{r}
+
+geneBody_bed =  gtf[,c("chrom","start","end")]
+colnames(geneBody_bed)=c("V1","V2","V3")
+
+geneBody_bed <- GRanges(seqnames = geneBody_bed$V1,
+            ranges = IRanges(start = geneBody_bed$V2,
+                             end = geneBody_bed$V3))
+
+
+geneBody_cpg=geneBody_bed[countOverlaps(geneBody_bed, cpg_bed, type="any")>0]
+
+bw=as.list(list.files(path = "C:/Users/gael/leo_2023/med_seq/bigwig/", pattern = "_no_norm_no_dedduped.bw"))
+
+# findOverlaps cpg_bed and prom/geneBody/geneBody_elements
+
+bw_list=sapply(bw, function(x) {read_bigwig(paste0("../1_fq_to_bw/bigwig/",x),overlap_ranges=geneBody_cpg)})
+names(bw_list)=sub("_no_norm.*","",unlist(bw))
+bw_list=bw_list[rn(sample_annot)]
+
+bw_list_df=lapply(bw_list,function(x){
+  
+  x=as.data.frame(x)
+  x=x[x$score>0,]
+  x=x[,c("seqnames","start","end","score")]
+  rownames_x=paste(sep = "_",x$seqnames,x$start,x$end)
+  x=as.data.frame(x[,'score'])
+  x$rownames_x=rownames_x
+  return(x)
+
+})
+
+bw_list_df %>% reduce(full_join, by = "rownames_x") -> bw_df
+
+rownames(bw_df)=bw_df$rownames_x
+bw_df$rownames_x=NULL
+
+bw_df[is.na(bw_df)]<-0
+
+colnames(bw_df)=names(bw_list_df)
+
+bw_df=bw_df[,rn(sample_annot)]
+
+bw_df_corrected=log2(bw_df+1)
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-dox-clone1'[bw_df_corrected$'naive-dox-clone1'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-dox-clone2'[bw_df_corrected$'naive-dox-clone2'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-dox-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 5)
+
+bw_df_corrected$'naive-dox-clone3'[bw_df_corrected$'naive-dox-clone3'<5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.8)
+
+bw_df_corrected$'naive-WT-dox-clone4'[bw_df_corrected$'naive-WT-dox-clone4'<4.8]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-dox-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'naive-WT-dox-clone5'[bw_df_corrected$'naive-WT-dox-clone5'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-untreated-clone1'[bw_df_corrected$'naive-untreated-clone1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone2"][11000:13000]+1)))+
+  geom_hline(yintercept = 5.2)
+
+bw_df_corrected$'naive-untreated-clone2'[bw_df_corrected$'naive-untreated-clone2'<5.2]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-untreated-clone3"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.8)
+
+bw_df_corrected$'naive-untreated-clone3'[bw_df_corrected$'naive-untreated-clone3'<3.8]=0
+
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone4"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone4'[bw_df_corrected$'naive-WT-untreated-clone4'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"naive-WT-untreated-clone5"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'naive-WT-untreated-clone5'[bw_df_corrected$'naive-WT-untreated-clone5'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Naive-WT-rep1'[bw_df_corrected$'Naive-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Naive-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.3)
+
+bw_df_corrected$'Naive-WT-rep2'[bw_df_corrected$'Naive-WT-rep2'<4.3]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'Primed-WT-rep1'[bw_df_corrected$'Primed-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"Primed-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'Primed-WT-rep2'[bw_df_corrected$'Primed-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'TSC-WT-rep1'[bw_df_corrected$'TSC-WT-rep1'<4]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"TSC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 3.5)
+
+bw_df_corrected$'TSC-WT-rep2'[bw_df_corrected$'TSC-WT-rep2'<3.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep1"][11000:13000]+1)))+
+  geom_hline(yintercept = 4.5)
+
+bw_df_corrected$'EXMC-WT-rep1'[bw_df_corrected$'EXMC-WT-rep1'<4.5]=0
+
+```
+
+```{r}
+ggplot()+
+  geom_point(aes(x=rn(bw_df)[11000:13000],y=log2(bw_df[,"EXMC-WT-rep2"][11000:13000]+1)))+
+  geom_hline(yintercept = 4)
+
+bw_df_corrected$'EXMC-WT-rep2'[bw_df_corrected$'EXMC-WT-rep2'<4]=0
+
+```
+
+```{r}
+# variableGenes<-getMostVariableGenes4(as.matrix(mra_samples),minCount = 1)
+# thres<- 0.2
+# qplotDensity(variableGenes$residuals)+geom_vline(xintercept = thres)
+# variableGenesNames<-rn(variableGenes)[variableGenes$residuals>thres]
+# len(variableGenesNames)
+# 
+# mra_most_var=log2(mra_samples[variableGenesNames,]+1)
+
+# scale(bw_df_corrected[rowSums(bw_df_corrected)>0,])
+# 
+colSums(bw_df_corrected)
+# 
+# Heatmap(cor(bw_df_corrected))
+```
+
+```{r}
+bw_df_corrected$chr=sub("_.*","",rn(bw_df_corrected))
+
+```
+
+```{r}
+
+bw_df_corrected%>%
+  group_by(chr) %>%
+  summarise(across(everything(), list(sum))) -> bw_df_corrected_sum
+
+colnames(bw_df_corrected_sum)=sub("_1.*","",colnames(bw_df_corrected_sum))
+
+```
+
+```{r, include=T}
+
+bw_df_corrected_sum %>%
+  pivot_longer(!c(chr), names_to = "sample", values_to = "count") -> bw_df_corrected_sum_longer
+
+bw_df_corrected_sum_longer$cell_type=rep(rep(sample_annot$cell_type,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$condition=rep(rep(sample_annot$condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=rep(rep(sample_annot$cell_type_condition,each=1),nrow(bw_df_corrected_sum))
+bw_df_corrected_sum_longer$cell_type_condition=factor(bw_df_corrected_sum_longer$cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))
+
+```
+
+```{r}
+bw_df_corrected_sum_longer %>%
+  group_by(chr,cell_type_condition) %>%
+  # summarise(count=mean(count)) %>%
+  mutate(mean=mean(count),sd=sd(count),chr=factor(chr,levels=paste0("chr",c(seq(22),"X"))),cell_type_condition=factor(cell_type_condition,levels=c("naive_xist_untreated","naive_xist_dox","naive_wt_untreated","naive_wt_dox","NAIVE_wt","EXMC_wt","TSC_wt","PRIMED_wt"))) %>%
+  as.data.frame() -> df_plot
+
+
+# downloaded the data table to replot it for Panda, Carrillo manuscript
+write.table(df_plot, file = "outputs/med_seq_barplot_df_genebody_cpg.tsv", sep = '\t', col.names = T, row.names = F, quote = F)
+
+```

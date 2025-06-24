@@ -1,0 +1,175 @@
+# GaelCastel, 2023
+# !!!!! MED-SEQ SINGLE-END !!!!
+# for trimgalore, eliminate option --paired and no intermediate file name
+# for bowtie2 align, eliminate option --no-mixed --no-discordant -X
+
+configfile: "config.json"
+
+outdir_human=config["output_path_human"]
+
+human_gtf="/shared/projects/xci/ReferenceGenomes/GRCh38/GTF/Homo_sapiens.GRCh38.90.gtf"
+
+
+
+rule all:
+    input:
+        bw_human_no_norm=expand(config["output_path_human"]+"/bigwig/{sample_human}_no_norm_no_dedduped.bw",sample_human=config["sample_human"])
+
+
+
+rule bowtie2_mus_human:
+    input:
+        sample=[outdir_human+"/fastq/trimmed/{sample}_trimmed.fq.gz"]
+    output:
+        temp(outdir_human+"/bam/{sample}.mus.bam")
+    threads: 8
+    resources:
+        load=12
+    params:
+        index="/shared/projects/xci/ReferenceGenomes/mm10/bowtie2/mm10",
+        extra="--local --very-sensitive-local --no-unal --phred33 -L 10"
+    log:
+        "log/{sample}_bowtie2_mus.log"
+    priority: 2
+    shell:
+    """
+    bowtie2 -x {params.index} -U {input.sample} {params.extra} --threads {threads} > {output}
+    """
+
+# old one : 0.78.0/bio/bowtie2/align
+
+rule samtools_sort_mus_human:
+    input:
+        outdir_human+"/bam/{sample}.mus.bam"
+    output:
+        temp(outdir_human+"/bam/{sample}.sorted.mus.bam")
+    threads: 8
+    log:
+        "log/{sample}_samtools_sort_mus.log"
+    priority: 2
+    shell:
+        "(samtools sort -@ {threads} \
+            -o {output} \
+            {input}) 2> {log}"
+
+
+rule bowtie2_hg38_human:
+    input:
+        sample=[outdir_human+"/fastq/trimmed/{sample}_trimmed.fq.gz"]
+    output:
+        temp(outdir_human+"/bam/{sample}.hg38.bam")
+    threads: 8
+    resources:
+        load=12
+    params:
+        index="/shared/projects/xci/ReferenceGenomes/GRCh38/bowtie2/hg38",
+        extra="--local --very-sensitive-local --no-unal --phred33 -L 10"
+    log:
+        "log/{sample}_bowtie2_hg38.log"
+    priority: 2
+    shell:
+    """
+    bowtie2 -x {params.index} -U {input.sample} {params.extra} --threads {threads} > {output}
+    """
+
+rule samtools_sort_hg38_human:
+    input:
+        outdir_human+"/bam/{sample}.hg38.bam"
+    output:
+        temp(outdir_human+"/bam/{sample}.sorted.hg38.bam")
+    threads: 8
+    log:
+        "log/{sample}_samtools_sort_hg38.log"
+    priority: 2
+    shell:
+        "(samtools sort -@ {threads} \
+            -o {output} \
+            {input}) 2> {log}"
+
+
+rule qual_reads_human:
+    input:
+        bam=outdir_human+"/bam/{sample}.sorted.hg38.bam",
+    output:
+        temp(outdir_human+"/bam/{sample}.hg38.qual.bam")
+    params: qual=10
+    priority: 3
+    log:
+        "log/{sample}_hg38_qual.log"
+    shell:
+        "(samtools view -q {params.qual} -b {input.bam} > {output}) \
+            2> {log}"
+
+
+rule qual_reads_mus_human:
+    input:
+        bam=outdir_human+"/bam/{sample}.sorted.mus.bam",
+    output:
+        temp(outdir_human+"/bam/{sample}.mus.qual.bam")
+    params: qual=10
+    priority: 3
+    log:
+        "log/{sample}_mus_qual.log"
+    shell:
+        "(samtools view -q {params.qual} -b {input.bam} > {output}) \
+            2> {log}"
+
+
+rule samtools_index_hg38_human:
+    input: outdir_human+"/bam/{sample}.hg38.qual.bam"
+    output: temp(outdir_human+"/bam/{sample}.hg38.qual.bam.bai")
+    params:
+        "" # optional params string
+    priority: 3
+    threads: 6
+    log: "log/{sample}_index.log"
+    shell:
+    """
+    samtools index -b -@ {threads} {input} 2> {log}
+    """
+
+
+rule samtools_index_mus_human:
+    input: outdir_human+"/bam/{sample}.mus.qual.bam"
+    output: temp(outdir_human+"/bam/{sample}.mus.qual.bam.bai")
+    params:
+        "" # optional params string
+    priority: 3
+    threads: 6
+    log: "log/{sample}_index.log"
+    shell:
+    """
+    samtools index -b -@ {threads} {input} 2> {log}
+    """
+
+
+rule Perform_Xenofilter_human:
+    input: 
+        mouse_bam=outdir_human+"/bam/{sample}.mus.qual.bam",
+        human_bam=outdir_human+"/bam/{sample}.hg38.qual.bam",
+        mouse_bam_bai=outdir_human+"/bam/{sample}.mus.qual.bam.bai",
+        human_bam_bai=outdir_human+"/bam/{sample}.hg38.qual.bam.bai"
+
+    output:
+        bam=outdir_human+"/bam/{sample}/Filtered_bams/{sample}_Filtered.bam",
+        bai=outdir_human+"/bam/{sample}/Filtered_bams/{sample}_Filtered.bam.bai"
+    log:"log/{sample}_xenofilter.log"
+    shell:
+        "(Rscript Xeno_human.R {input.human_bam} {input.mouse_bam}) 2> {log}"
+
+
+rule bigwig_human_no_norm:
+    input:
+        bam=outdir_human+"/bam/{sample}/Filtered_bams/{sample}_Filtered.bam",
+        bam_bai=outdir_human+"/bam/{sample}/Filtered_bams/{sample}_Filtered.bam.bai"
+    output: protected(outdir_human+"/bigwig/{sample}_no_norm_no_dedduped.bw")
+    params:
+        normalizeUsing="None",
+        binSize=20,
+        smoothLength=40
+    log: "log/{sample}_nor_norm.log"
+    shell:
+        "(bamCoverage -b {input.bam} \
+        --normalizeUsing {params.normalizeUsing}  --binSize {params.binSize} \
+        --smoothLength {params.smoothLength} -o {output}) 2> {log}"
+
