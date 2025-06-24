@@ -1,7 +1,7 @@
 
 # 3D-SIM XIST foci analysis
 
-This section contains the scripts that were used for the quantification of 3D-SIM acquired images of cells (**@Amitesth** add the types/conditions).
+This section contains the scripts that were used for the quantification of 3D-SIM acquired images of cells (**H9 Naive, EXMCs and TSCs**).
 
 ## Imaris-Based Segmentation and Detection
 
@@ -110,4 +110,58 @@ Calculates the nearest neighbor distances for each vesicle within the same cell 
 - `nearest_neighbor_distances.csv`: Contains distances to the nearest neighbors for each vesicle.
 - `median_nearest_neighbor_distances.csv`: Contains median nearest neighbor distances per image.
 
-## R-Based Data Visualization and Statistical Analysis (Amitesh you can write your section here)
+## R-Based Data Visualization and Statistical Analysis
+
+### Step 1: Count cells per image per cell type that have "foci out"
+#### •	Goal: 
+Identify cells where NearestNeighborDistance_5 > 4. We choose the threshold 4 as it the value where all the EXMCs and TSCs still had lots of foci out whereas all naïve cells were within.
+•	Groups by image, cell ID, and cell type → determines if that cell has "foci out" (1) or not (0).
+•	Keeps only those with foci_out == 1.
+•	Then counts how many such cells exist per image and cell type.
+
+### Step 2: Count total unique cells per cell type
+•	Get the total number of unique cells per cell type (regardless of "foci out").
+
+### Step 3: Sum the number of "foci out" cells per cell type across all images
+
+### Step 4: Merge with total cells per cell type
+•	Combine the count of "foci out" cells with the total cell count per type.
+
+### Step 5: Plot the percentage of "foci out" cells per cell type
+•	Create a bar plot showing the percentage of cells with NearestNeighborDistance_5 > 4 per cell type.
+
+### Step 6: Create a vector called test_data_tsc_exmc, combining cell counts from images annotated with "H9 ESC TSCs" and "H9 ESC EXMCs". 
+1.	The number of TSC cells.
+2.	The non-TSC cells in those images (total_cells - num_cells_total).
+3.	The number of EXMC cells.
+4.	The non-EXMC cells in those images.
+This structure is useful for testing enrichment function which we need to use below. Similarily, create vector for Naïve and TSCs cells.
+
+### Step 7: Perform statistics using enrichment(data) function
+
+#### Input: A 4-element vector (e.g., from test_data_h9naive_exmc or test_data_tsc_exmc).
+
+#### Output:
+1.	fisher.test(df) → Fisher's Exact Test result.
+2.	chisq.test(df) → Chi-squared Test result.
+3.	A data.table formatted for plotting, with calculated percentages of “Yes” and “No” per group:
+o	Reshaped using dcast and melt
+o	Annotated with genes_factor for barplot faceting
+
+### Step 8: This step reshapes your data and creates a stacked bar plot showing the percentage of Spreaded vs. Non-Spreaded cells.
+•	Add a column non_spreaded, the complement of num_cells_total.
+•	Reshape the data into long format with:
+o	XIST_cloud = "Spreaded" or "Non-Spreaded"
+o	cell_count = actual count
+•	This enables plotting stacked bars for each condition.
+•	Plot- Shows percentage of Spreaded vs. Non-Spreaded cells per cell_type, Stacked bars add to 100% for each cell type, Colors: "red" for Spreaded, "gray" for Non-Spreaded, Minimalist theme for clean visuals
+
+## To calculate the number of foci per cell:
+•	group_by(cell_type): Group the data by each cell type.
+•	summarise(unique_foci = unique(...)): For each group, extract all unique values of number_of_foci_per_cell.
+•	ungroup(): Remove the grouping afterward.
+
+#### Output: Combined violin + box plot with overlayed points. It should produce a nice visualization with:
+•	violin plots showing distribution shape and density,
+•	narrow boxplots for median,
+•	and individual points overlaid.
