@@ -11,12 +11,12 @@
 
 
 #questions can be emailed to bradley.balaton@kuleuven.be 
-#you will need to modify file locations and some of the later stuff was run outside this script and will need modifications
+#you will need to modify file locations, especially for some of the programs called
 
 
 #option to set whether I have already aligned or not
-#align="TRUE" # if you want to align again
-align="FALSE" # if you do not want to align again
+align="TRUE" # if you want to align again
+#align="FALSE" # if you do not want to align again
 
 
 
@@ -122,23 +122,20 @@ date
 
 
 
-##add deduplication step here
-##something like:
-#       echo "Deduplicating reads"
-#       mkdir dedup.bams
 
+       echo "Deduplicating reads"
+       mkdir dedup.bams
 
-#       module load Java/11.0.2
+       module load Java/11.0.2
 
-
-#       for bamFile in *.bam
-#       do
-#             java -jar /staging/leuven/stg_00041/software/picard/picard.jar MarkDuplicates \
-#             I=$bamFile \
-#             O=dedup.bams/${bamFile//.bam/dedup.bam} \
-#             M=dedup.bams/${bamFile//.bam/markedDups.txt} \
-#             REMOVE_DUPLICATES=true
-#       done
+       for bamFile in *.bam
+       do
+             java -jar /staging/leuven/stg_00041/software/picard/picard.jar MarkDuplicates \
+             I=$bamFile \
+             O=dedup.bams/${bamFile//.bam/dedup.bam} \
+             M=dedup.bams/${bamFile//.bam/markedDups.txt} \
+             REMOVE_DUPLICATES=true
+       done
 
 
 
@@ -192,14 +189,15 @@ date
 
 
 
-#adapt this section if I ever need to rerun this. still using files from my initial tests in this example
+
 ##sorting bams
-/staging/leuven/stg_00041/Published_StemCell_Data/Takashima2014/arrayExpress.E-MTAB-2857/allelicResultsAJpipeline/aligned_strains $ for file in *genome*.bam; do /data/leuven/343/vsc34313/samtools-1.13/bin/samtools sort -O BAM  $file > sortedBams/$file
+cd $OUT_DIR/aligned_strains/
+mkdir sortedBAMS
 
+for file in *genome*.bam; do /data/leuven/343/vsc34313/samtools-1.13/bin/samtools sort -O BAM  $file > sortedBams/$file
 
+cd sortedBAMS
 
-
-#change this to be the right bams as input
 files=(*.bam)
 
 
