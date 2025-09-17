@@ -1,0 +1,1 @@
+each input file is the intensities of DAPI and XIST across a line quantified using imageJ.
