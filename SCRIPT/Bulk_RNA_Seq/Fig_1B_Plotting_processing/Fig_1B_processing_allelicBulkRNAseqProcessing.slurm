@@ -29,7 +29,8 @@ date
 
 
                 # will need to change directory or have some option for an input file
-          #this is the directory with the fastq files      directory=/staging/leuven/stg_00041/Ryan/230124.NextSeq2000.FCA/runs/230124.NextSeq2000.FCA/230124_VH00445_181_AACJHCYM5/Fastq/Trimmed
+          #this is the directory with the fastq files      
+          directory=/staging/leuven/stg_00041/Ryan/230124.NextSeq2000.FCA/runs/230124.NextSeq2000.FCA/230124_VH00445_181_AACJHCYM5/Fastq/Trimmed
 
 
                 cd $directory
@@ -45,6 +46,7 @@ date
 
 #various input files used: N-masked genome specific to the samples
                 N_MASKED=/staging/leuven/stg_00041/Bradley/H9genome/NmaskedH9.STARindex/
+
 #the SNP file has columns: number chromosome position SNPsize SNPalleles
 #example: 
 #1        chr1        17385        1        G/A
@@ -84,7 +86,8 @@ date
 
 
 
-        #loading genome to speed things up        /staging/leuven/stg_00041/software/STAR_2.7.1a/STAR-2.7.1a/bin/Linux_x86_64/STAR --genomeDir $N_MASKED --genomeLoad LoadAndExit
+        #loading genome to speed things up        
+          /staging/leuven/stg_00041/software/STAR_2.7.1a/STAR-2.7.1a/bin/Linux_x86_64/STAR --genomeDir $N_MASKED --genomeLoad LoadAndExit
 
 
 
