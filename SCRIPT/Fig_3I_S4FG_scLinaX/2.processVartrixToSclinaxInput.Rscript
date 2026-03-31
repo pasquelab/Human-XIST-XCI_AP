@@ -10,30 +10,35 @@ if (length(args)<7) {
 library(Matrix)
 library(reshape2)
 
+#the first 4 columns are from the vcf file, generated in previous script using awk
 scLinax4cols <- read.table(args[1], h=F, sep="\t")
 colnames(scLinax4cols)<- c("SNP_ID", "POS","REF","ALT")
 
+#load vartrix SNP location annotations
 variantPos <- read.table(args[2])
 variantPos$isX <- variantPos$V1=="chrX"
 variantPos$loc <- apply(variantPos[,1:2], 1, paste, collapse="_")
 
+#load allelic data from vartrix
 refReads <- readMM(file = args[3])
 altReads <- readMM(file = args[4])
 
+#narrow to X SNPs
 Xref <- refReads[which(variantPos$isX),]
 Xalt <- altReads[which(variantPos$isX),]
 rownames(Xref) <- variantPos$loc[which(variantPos$isX)]
 rownames(Xalt) <- variantPos$loc[which(variantPos$isX)]
 
-
+#loading barcodes
 barcodes <- read.table(args[5], sep="\t")
 colnames(Xref)<- barcodes$V1
 colnames(Xalt) <- barcodes$V1
 
+#melt to make it linear so I can line the vartrix output up side by side
 refMelt <- melt(as.matrix(Xref))
 altMelt <- melt(as.matrix(Xalt))
 
-
+#function for matching to genes
 exons <- read.table("/staging/leuven/stg_00041/Bradley//hg38.exonsWgene.tsv", h=F)
 getGene <- function(Xpos){
     #Xpos is a single entry from V2 from my vcf, but filtered to only be chrX as that is all I have the exons for
@@ -42,31 +47,13 @@ getGene <- function(Xpos){
     } else return("no gene found")
 }
 
-
+#apply function
 variantPos$gene<- NA
 variantPos$gene[which(variantPos$isX)] <- unlist(lapply(scLinax4cols$POS[which(variantPos$isX)], getGene))
 
+#formatting scLinaX input
 scLinaXinput <- data.frame(scLinax4cols[which(variantPos$isX),], cell_barcode=refMelt$Var2, REFcount=refMelt$value, ALTcount=altMelt$value, OTHcount=0, Gene=variantPos$gene[which(variantPos$isX)], Sample_ID=args[7])
 
 
 write.table(scLinaXinput[which(scLinaXinput$Gene!="no gene found"),], args[6], col.names=T, row.names=F, sep="\t", quote=F)
 #if this script takes too long to run, could replace the gene matching part with annovar outputs.
-
-
-
-#this is added later and can be removed if it adds too much time or crashes
-library(parallel)
-
-print("running checkSNPdepthAcrossRefAndAltMatrix.Rscript")
-
-posList <- read.table(args[2])
-refMatrix <- read.table(file = args[3], h=F, skip=3, sep=" ")
-altMatrix <- read.table(file = args[4], h=F, skip=3, sep=" ")
-
-cl <- makeCluster(detectCores())
-clusterExport(cl=cl, varlist=c("refMatrix", "altMatrix"), envir=environment())
-posList$refDepth <- unlist(parLapply(cl, 1:nrow(posList), function(i){return(sum(refMatrix[which(refMatrix$V1==i),3]))}))
-posList$altDepth <- unlist(parLapply(cl, 1:nrow(posList), function(i){return(sum(altMatrix[which(altMatrix$V1==i),3]))}))
-stopCluster(cl)
-
-write.table(posList, file=paste(c(args[6], ".postVartrixDepths.tsv"), collapse=""), col.names=T, row.names=F, sep="\t", quote=T)
